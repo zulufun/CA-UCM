@@ -1,0 +1,154 @@
+
+services:
+  ucm:
+    image: neyslim/ultimate-ca-manager:latest
+    container_name: ucm
+    restart: unless-stopped
+    
+    ports:
+      - "${UCM_HTTPS_PORT:-8443}:8443"
+      - "${UCM_HTTP_PORT:-8080}:8080"
+    
+    volumes:
+      # Persistent data volume (REQUIRED)
+      - ucm-data:/opt/ucm/data
+      
+      # Optional: Custom configuration
+      # - ./.env:/app/.env.custom:ro
+      
+      # Optional: Custom HTTPS certificates
+      # - ./certs/https_cert.pem:/opt/ucm/data/https_cert.pem:ro
+      # - ./certs/https_key.pem:/opt/ucm/data/https_key.pem:ro
+    
+    environment:
+      # ========================================
+      # CORE SETTINGS (REQUIRED)
+      # ========================================
+      
+      # FQDN - CRITICAL for Docker (hostname detection doesn't work)
+      - UCM_FQDN=${UCM_FQDN:-ucm.local}
+      
+      # Ports
+      - UCM_HTTPS_PORT=${UCM_HTTPS_PORT:-8443}
+      - UCM_HTTP_PORT=${UCM_HTTP_PORT:-8080}
+      
+      # Debug & Logging
+      - UCM_DEBUG=${UCM_DEBUG:-false}
+      - UCM_LOG_LEVEL=${UCM_LOG_LEVEL:-INFO}
+      
+      # ========================================
+      # SECURITY (REQUIRED)
+      # ========================================
+      
+      # Auto-generated if not provided
+      - UCM_SECRET_KEY=${UCM_SECRET_KEY:-}
+      - UCM_JWT_SECRET=${UCM_JWT_SECRET:-}
+      
+      # Session & Token Expiration
+      - UCM_SESSION_TIMEOUT=${UCM_SESSION_TIMEOUT:-3600}
+      - UCM_JWT_EXPIRATION=${UCM_JWT_EXPIRATION:-86400}
+      
+      # ========================================
+      # DATABASE
+      # ========================================
+      
+      - UCM_DATABASE_PATH=${UCM_DATABASE_PATH:-/opt/ucm/data/ucm.db}
+      - UCM_BACKUP_ENABLED=${UCM_BACKUP_ENABLED:-true}
+      - UCM_BACKUP_RETENTION_DAYS=${UCM_BACKUP_RETENTION_DAYS:-30}
+      
+      # ========================================
+      # SMTP / EMAIL (OPTIONAL)
+      # ========================================
+      
+      - UCM_SMTP_ENABLED=${UCM_SMTP_ENABLED:-false}
+      - UCM_SMTP_SERVER=${UCM_SMTP_SERVER:-}
+      - UCM_SMTP_PORT=${UCM_SMTP_PORT:-587}
+      - UCM_SMTP_USERNAME=${UCM_SMTP_USERNAME:-}
+      - UCM_SMTP_PASSWORD=${UCM_SMTP_PASSWORD:-}
+      - UCM_SMTP_FROM=${UCM_SMTP_FROM:-noreply@ucm.local}
+      - UCM_SMTP_TLS=${UCM_SMTP_TLS:-true}
+      
+      # ========================================
+      # CACHING
+      # ========================================
+      
+      - UCM_CACHE_ENABLED=${UCM_CACHE_ENABLED:-true}
+      - UCM_CACHE_TYPE=${UCM_CACHE_TYPE:-simple}
+      - UCM_CACHE_DEFAULT_TIMEOUT=${UCM_CACHE_DEFAULT_TIMEOUT:-300}
+      
+      # ========================================
+      # mTLS AUTHENTICATION (OPTIONAL)
+      # ========================================
+      
+      - UCM_MTLS_ENABLED=${UCM_MTLS_ENABLED:-false}
+      - UCM_MTLS_CA_ID=${UCM_MTLS_CA_ID:-}
+      - UCM_MTLS_REQUIRE_CERT=${UCM_MTLS_REQUIRE_CERT:-false}
+      
+      # ========================================
+      # CERTIFICATE DEFAULTS
+      # ========================================
+      
+      - UCM_DEFAULT_VALIDITY_DAYS=${UCM_DEFAULT_VALIDITY_DAYS:-365}
+      - UCM_DEFAULT_KEY_SIZE=${UCM_DEFAULT_KEY_SIZE:-4096}
+      - UCM_DEFAULT_HASH_ALGO=${UCM_DEFAULT_HASH_ALGO:-SHA256}
+      
+      # ========================================
+      # PROTOCOLS (ACME, SCEP)
+      # ========================================
+      
+      - UCM_ACME_ENABLED=${UCM_ACME_ENABLED:-true}
+      - UCM_ACME_DIRECTORY_URL=${UCM_ACME_DIRECTORY_URL:-}
+      
+      # ========================================
+      # CUSTOM HTTPS CERTIFICATES (OPTIONAL)
+      # ========================================
+      
+      # Paste PEM-encoded certificate/key here or mount as volumes
+      - UCM_HTTPS_CERT=${UCM_HTTPS_CERT:-}
+      - UCM_HTTPS_KEY=${UCM_HTTPS_KEY:-}
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:${UCM_HTTPS_PORT:-8443}/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Security settings
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    read_only: false  # Needs to write to database
+    
+    # Resource limits (adjust based on your hardware)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    
+    networks:
+      - ucm-network
+    
+    labels:
+      - "com.ultimate-ca-manager.description=Certificate Authority Management"
+      - "traefik.enable=false"  # Disable if using Traefik
+
+networks:
+  ucm-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  ucm-data:
+    driver: local

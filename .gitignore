@@ -1,0 +1,103 @@
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+frontend/*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+.bash_logout
+.bashrc
+.profile
+
+# Obsolete
+.release-version
+MANIFEST
+verify_imports.py
+verify_proxy.py
+GITHUB_DESCRIPTION.md
+wiki/
+
+# Application
+.env
+backend/data/*.db
+backend/data/*.db-*
+backend/data/ca/*
+!backend/data/ca/.gitkeep
+backend/data/certs/*
+!backend/data/certs/.gitkeep
+backend/data/crl/*
+!backend/data/crl/.gitkeep
+backend/data/private/*
+!backend/data/private/.gitkeep
+backend/data/scep/*
+!backend/data/scep/.gitkeep
+backend/data/backups/*
+!backend/data/backups/.gitkeep
+backend/data/*.pem
+*.crt
+*.key
+*.csr
+*.p12
+*.pfx
+
+# Build artifacts
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+dist/
+build/
+*.egg-info/
+
+# Debian packaging build
+packaging/debian/ucm/
+packaging/debian/.debhelper/
+packaging/debian/debhelper-build-stamp
+packaging/debian/files
+packaging/debian/*.substvars
+packaging/debian/*.debhelper.log
+
+# RPM packaging build
+packaging/rpm/BUILD/
+packaging/rpm/RPMS/
+packaging/rpm/SRPMS/
+packaging/rpm/BUILDROOT/
+
+# Logs
+*.log
+logs/
+
+# Backup files
+*.bak
+*.backup
+*.old
+*~
+
+# Test files (root level only, not in tests/)
+/test_*.py
+/migrate_*.py
+data/
+!frontend/src/data/
+CLAUDE.md
+backend/static/

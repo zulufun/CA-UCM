@@ -1,0 +1,85 @@
+# Ultimate CA Manager - Backend Dependencies
+# Updated: 2026-02-21 - Compatible with Python 3.13
+
+# Flask Core
+Flask==3.1.3
+Flask-RESTX==1.3.2
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.1.0
+Flask-CORS==6.0.2
+Flask-Limiter==4.1.1
+Flask-Caching==2.3.1
+Flask-Session==0.8.0
+
+# Cryptography & OpenSSL
+cryptography==46.0.5
+pyOpenSSL==25.3.0
+asn1crypto==1.5.1
+
+# WebAuthn/FIDO2 Support
+webauthn==2.7.1
+cbor2==5.8.0
+
+# TOTP/2FA Support
+pyotp>=2.9.0
+qrcode>=7.4
+Pillow>=10.0.0
+
+# SCEP Support
+pycryptodome==3.23.0
+pyasn1==0.6.2
+pyasn1-modules==0.4.2
+
+# ACME Support
+josepy>=2.2.0
+dnspython==2.8.0
+
+# HTTP & Utils
+requests==2.32.5
+python-dotenv==1.2.1
+python-dateutil==2.9.0.post0
+marshmallow==4.2.2
+psutil==7.2.2
+
+# Password Hashing
+bcrypt==5.0.0
+
+# Production Server
+gunicorn==25.1.0
+
+# Email validation
+email-validator==2.3.0
+
+# API Documentation
+flasgger>=0.9.7
+
+# LDAP/Active Directory Integration
+ldap3>=2.9.1
+
+# SSO/SAML Support
+python3-saml>=1.16.0
+python-jose>=3.3.0
+
+# HSM Support (PKCS#11, Azure Key Vault, Google Cloud KMS)
+python-pkcs11>=0.7.0
+azure-keyvault-keys>=4.9.0
+azure-identity>=1.15.0
+google-cloud-kms>=2.21.0
+
+# PostgreSQL support (optional, for HA deployments)
+# psycopg2-binary>=2.9.9
+
+# Redis session store (optional, install with: pip install redis)
+# redis>=5.0.0
+
+# Development & Testing
+pytest==9.0.2
+pytest-cov==7.0.0
+black==26.1.0
+flake8==7.3.0
+
+# WebSocket Support
+flask-socketio==5.6.0
+python-socketio==5.16.1
+gevent==25.9.1
+gevent-websocket==0.10.1

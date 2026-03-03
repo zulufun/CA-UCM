@@ -1,0 +1,249 @@
+"""
+DNS Providers Package
+Registry and factory for DNS provider implementations.
+
+To add a new provider:
+1. Create a new file (e.g., newprovider.py)
+2. Inherit from BaseDnsProvider
+3. Implement required methods
+4. Add to PROVIDER_REGISTRY below
+"""
+from typing import Dict, Type, Optional, List, Any
+import logging
+
+from .base import BaseDnsProvider
+from .manual import ManualDnsProvider
+from .ovh import OvhDnsProvider
+from .cloudflare import CloudflareDnsProvider
+from .hetzner import HetznerDnsProvider
+from .gandi import GandiDnsProvider
+from .digitalocean import DigitalOceanDnsProvider
+from .infomaniak import InfomaniakDnsProvider
+from .route53 import Route53DnsProvider
+from .azure import AzureDnsProvider
+from .scaleway import ScalewayDnsProvider
+from .ionos import IonosDnsProvider
+from .desec import DesecDnsProvider
+from .linode import LinodeDnsProvider
+from .bookmyname import BookMyNameDnsProvider
+from .vultr import VultrDnsProvider
+from .godaddy import GoDaddyDnsProvider
+from .namecheap import NamecheapDnsProvider
+from .netcup import NetcupDnsProvider
+from .inwx import InwxDnsProvider
+from .freedns import FreeDnsDnsProvider
+from .duckdns import DuckDnsDnsProvider
+from .gcloud import GoogleCloudDnsProvider
+from .dynu import DynuDnsProvider
+from .dnsimple import DnsimpleDnsProvider
+from .dnsmadeeasy import DnsMadeEasyDnsProvider
+from .easydns import EasyDnsDnsProvider
+from .dreamhost import DreamhostDnsProvider
+from .cloudns import ClouDnsDnsProvider
+from .domeneshop import DomeneshopDnsProvider
+from .porkbun import PorkbunDnsProvider
+from .vercel import VercelDnsProvider
+from .bunny import BunnyDnsProvider
+from .alwaysdata import AlwaysdataDnsProvider
+from .corenetworks import CoreNetworksDnsProvider
+from .checkdomain import CheckdomainDnsProvider
+from .netlify import NetlifyDnsProvider
+from .rackspace import RackspaceDnsProvider
+from .powerdns import PowerDnsDnsProvider
+from .ns1 import Ns1DnsProvider
+from .constellix import ConstellixDnsProvider
+from .hostinger import HostingerDnsProvider
+from .hover import HoverDnsProvider
+from .namecom import NamecomDnsProvider
+from .epik import EpikDnsProvider
+from .hurricane import HurricaneDnsProvider
+from .mythicbeasts import MythicBeastsDnsProvider
+from .rcodezero import RcodeZeroDnsProvider
+from .rfc2136 import Rfc2136DnsProvider
+
+logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Provider Registry
+# Add new providers here after implementing them
+# =============================================================================
+
+PROVIDER_REGISTRY: Dict[str, Type[BaseDnsProvider]] = {
+    'manual': ManualDnsProvider,
+    # European providers (priority)
+    'ovh': OvhDnsProvider,
+    'hetzner': HetznerDnsProvider,
+    'gandi': GandiDnsProvider,
+    'infomaniak': InfomaniakDnsProvider,
+    'scaleway': ScalewayDnsProvider,
+    'ionos': IonosDnsProvider,
+    'netcup': NetcupDnsProvider,
+    'inwx': InwxDnsProvider,
+    'bookmyname': BookMyNameDnsProvider,
+    # International providers
+    'cloudflare': CloudflareDnsProvider,
+    'digitalocean': DigitalOceanDnsProvider,
+    'route53': Route53DnsProvider,
+    'gcloud': GoogleCloudDnsProvider,
+    'azure': AzureDnsProvider,
+    'linode': LinodeDnsProvider,
+    'vultr': VultrDnsProvider,
+    'godaddy': GoDaddyDnsProvider,
+    'namecheap': NamecheapDnsProvider,
+    'desec': DesecDnsProvider,
+    # Free DNS services
+    'duckdns': DuckDnsDnsProvider,
+    'freedns': FreeDnsDnsProvider,
+    'dynu': DynuDnsProvider,
+    # Additional providers
+    'dnsimple': DnsimpleDnsProvider,
+    'dnsmadeeasy': DnsMadeEasyDnsProvider,
+    'easydns': EasyDnsDnsProvider,
+    'dreamhost': DreamhostDnsProvider,
+    'cloudns': ClouDnsDnsProvider,
+    'domeneshop': DomeneshopDnsProvider,
+    'porkbun': PorkbunDnsProvider,
+    'vercel': VercelDnsProvider,
+    'bunny': BunnyDnsProvider,
+    'alwaysdata': AlwaysdataDnsProvider,
+    'corenetworks': CoreNetworksDnsProvider,
+    'checkdomain': CheckdomainDnsProvider,
+    # Tier 1 - Cloud & Enterprise
+    'netlify': NetlifyDnsProvider,
+    'ns1': Ns1DnsProvider,
+    'constellix': ConstellixDnsProvider,
+    'rackspace': RackspaceDnsProvider,
+    'powerdns': PowerDnsDnsProvider,
+    # Tier 2 - Registrars & Regional
+    'hostinger': HostingerDnsProvider,
+    'hover': HoverDnsProvider,
+    'namecom': NamecomDnsProvider,
+    'epik': EpikDnsProvider,
+    'hurricane': HurricaneDnsProvider,
+    'mythicbeasts': MythicBeastsDnsProvider,
+    'rcodezero': RcodeZeroDnsProvider,
+    # Self-hosted / Protocol-based
+    'rfc2136': Rfc2136DnsProvider,
+}
+
+
+def get_provider_class(provider_type: str) -> Optional[Type[BaseDnsProvider]]:
+    """
+    Get provider class by type.
+    
+    Args:
+        provider_type: Provider type identifier (e.g., 'cloudflare')
+    
+    Returns:
+        Provider class or None if not found
+    """
+    return PROVIDER_REGISTRY.get(provider_type)
+
+
+def create_provider(provider_type: str, credentials: Dict[str, Any]) -> BaseDnsProvider:
+    """
+    Factory function to create a provider instance.
+    
+    Args:
+        provider_type: Provider type identifier
+        credentials: API credentials dict
+    
+    Returns:
+        Provider instance
+    
+    Raises:
+        ValueError: If provider type is unknown
+    """
+    provider_class = get_provider_class(provider_type)
+    if not provider_class:
+        available = ', '.join(PROVIDER_REGISTRY.keys())
+        raise ValueError(f"Unknown DNS provider type: {provider_type}. Available: {available}")
+    
+    return provider_class(credentials)
+
+
+def get_available_providers() -> List[Dict[str, Any]]:
+    """
+    Get list of all available provider types with their info.
+    
+    Returns:
+        List of provider info dicts
+    """
+    providers = []
+    for provider_type, provider_class in PROVIDER_REGISTRY.items():
+        providers.append(provider_class.to_dict())
+    return providers
+
+
+def get_provider_types() -> List[str]:
+    """
+    Get list of available provider type identifiers.
+    
+    Returns:
+        List of provider type strings
+    """
+    return list(PROVIDER_REGISTRY.keys())
+
+
+def is_valid_provider_type(provider_type: str) -> bool:
+    """
+    Check if a provider type is valid/registered.
+    
+    Args:
+        provider_type: Provider type to check
+    
+    Returns:
+        True if valid, False otherwise
+    """
+    return provider_type in PROVIDER_REGISTRY
+
+
+# =============================================================================
+# Helper to register providers dynamically (for plugins/extensions)
+# =============================================================================
+
+def register_provider(provider_type: str, provider_class: Type[BaseDnsProvider]) -> None:
+    """
+    Register a new provider type.
+    
+    Args:
+        provider_type: Type identifier
+        provider_class: Provider class (must inherit BaseDnsProvider)
+    """
+    if not issubclass(provider_class, BaseDnsProvider):
+        raise TypeError(f"Provider class must inherit from BaseDnsProvider")
+    
+    PROVIDER_REGISTRY[provider_type] = provider_class
+    logger.info(f"Registered DNS provider: {provider_type}")
+
+
+def unregister_provider(provider_type: str) -> bool:
+    """
+    Unregister a provider type.
+    
+    Args:
+        provider_type: Type to unregister
+    
+    Returns:
+        True if removed, False if not found
+    """
+    if provider_type in PROVIDER_REGISTRY:
+        del PROVIDER_REGISTRY[provider_type]
+        logger.info(f"Unregistered DNS provider: {provider_type}")
+        return True
+    return False
+
+
+# Export public API
+__all__ = [
+    'BaseDnsProvider',
+    'ManualDnsProvider',
+    'PROVIDER_REGISTRY',
+    'get_provider_class',
+    'create_provider',
+    'get_available_providers',
+    'get_provider_types',
+    'is_valid_provider_type',
+    'register_provider',
+    'unregister_provider',
+]

@@ -1,0 +1,3731 @@
+/**
+ * Settings Page - Horizontal tabs for desktop, scrollable for mobile
+ * Uses DetailCard design system
+ */
+import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
+import { 
+  Gear, EnvelopeSimple, ShieldCheck, Database, ListBullets, FloppyDisk, 
+  Envelope, Download, Trash, HardDrives, Lock, Key, Palette, Sun, Moon, Desktop, Info,
+  Timer, Clock, WarningCircle, UploadSimple, Certificate, Eye, ArrowsClockwise, Rocket,
+  Plus, PencilSimple, TestTube, Lightning, Globe, Shield, CheckCircle, XCircle, MagnifyingGlass,
+  Bell, Copy, Power, ArrowClockwise, LockKey, Warning, User, GithubLogo,
+  Plugs, UsersThree, UserPlus, TreeStructure, CaretDown, Play
+} from '@phosphor-icons/react'
+import {
+  ResponsiveLayout,
+  Button, Input, Select, Badge, Textarea, Card, EmptyState, ConfirmModal,
+  LoadingSpinner, FileUpload, Modal, HelpCard, Logo, ExperimentalBadge,
+  DetailHeader, DetailSection, DetailGrid, DetailField, DetailContent,
+  CompactSection,
+  UpdateChecker, ServiceReconnectOverlay
+} from '../components'
+import { SmartImportModal } from '../components/SmartImport'
+import LanguageSelector from '../components/ui/LanguageSelector'
+import { settingsService, systemService, casService, certificatesService, ssoService, mtlsService } from '../services'
+import { useNotification, useMobile } from '../contexts'
+import { useServiceReconnect } from '../hooks'
+import { usePermission } from '../hooks'
+import { formatDate } from '../lib/utils'
+import { useTheme } from '../contexts/ThemeContext'
+import { ToggleSwitch } from '../components/ui/ToggleSwitch'
+import TagsInput from '../components/ui/TagsInput'
+import EmailTemplateWindow from '../components/EmailTemplateWindow'
+import { apiClient } from '../services/apiClient'
+
+// Settings categories with colors for visual distinction
+const BASE_SETTINGS_CATEGORIES = [
+  { id: 'general', labelKey: 'settings.tabs.general', icon: Gear, color: 'icon-bg-blue' },
+  { id: 'appearance', labelKey: 'settings.tabs.appearance', icon: Palette, color: 'icon-bg-violet' },
+  { id: 'email', labelKey: 'settings.tabs.email', icon: EnvelopeSimple, color: 'icon-bg-teal' },
+  { id: 'security', labelKey: 'settings.tabs.security', icon: ShieldCheck, color: 'icon-bg-amber' },
+  { id: 'sso', labelKey: 'settings.tabs.sso', icon: Key, color: 'icon-bg-purple' },
+  { id: 'backup', labelKey: 'settings.tabs.backup', icon: Database, color: 'icon-bg-emerald' },
+  { id: 'audit', labelKey: 'settings.tabs.audit', icon: ListBullets, color: 'icon-bg-orange' },
+  { id: 'database', labelKey: 'settings.tabs.database', icon: HardDrives, color: 'icon-bg-teal' },
+  { id: 'https', labelKey: 'settings.tabs.https', icon: Lock, color: 'icon-bg-emerald' },
+  { id: 'updates', labelKey: 'settings.tabs.updates', icon: Rocket, color: 'icon-bg-violet' },
+  { id: 'webhooks', labelKey: 'settings.tabs.webhooks', icon: Bell, color: 'icon-bg-rose' },
+  { id: 'about', labelKey: 'settings.tabs.about', icon: Info, color: 'icon-bg-sky' },
+]
+
+// SSO Provider type icons
+const SSO_PROVIDER_ICONS = {
+  ldap: Database,
+  oauth2: Globe,
+  saml: Shield,
+}
+
+// Service Status Widget Component
+function ServiceStatusWidget() {
+  const { t } = useTranslation()
+  const { showSuccess, showError, showConfirm } = useNotification()
+  const { canWrite } = usePermission()
+  const [status, setStatus] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [restarting, setRestarting] = useState(false)
+  const { reconnecting, status: reconnectStatus, attempt, countdown, waitForRestart, cancel } = useServiceReconnect()
+
+  const fetchStatus = async () => {
+    try {
+      const response = await systemService.getServiceStatus()
+      setStatus(response.data)
+    } catch {
+      setStatus(null)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchStatus()
+    const interval = setInterval(fetchStatus, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const formatUptime = (seconds) => {
+    if (!seconds) return '-'
+    const days = Math.floor(seconds / 86400)
+    const hours = Math.floor((seconds % 86400) / 3600)
+    const mins = Math.floor((seconds % 3600) / 60)
+    if (days > 0) return `${days}d ${hours}h ${mins}m`
+    if (hours > 0) return `${hours}h ${mins}m`
+    return `${mins}m`
+  }
+
+  const handleRestart = async () => {
+    const confirmed = await showConfirm(t('settings.restartConfirmMessage'), {
+      title: t('settings.restartService'),
+      confirmText: t('settings.restartNow'),
+      variant: 'danger'
+    })
+    if (!confirmed) return
+
+    setRestarting(true)
+    try {
+      await systemService.restartService()
+      waitForRestart()
+    } catch {
+      showError(t('settings.restartFailed'))
+      setRestarting(false)
+    }
+  }
+
+  return (
+    <>
+      {reconnecting && (
+        <ServiceReconnectOverlay status={reconnectStatus} attempt={attempt} countdown={countdown} onCancel={cancel} />
+      )}
+      <DetailSection title={t('settings.serviceStatus')} icon={Power} iconClass="icon-bg-orange" className="mt-4">
+      {loading ? (
+        <LoadingSpinner size="sm" />
+      ) : status ? (
+        <div className="space-y-3">
+          <DetailGrid columns={2}>
+            <DetailField label={t('settings.version')} value={`v${status.version}`} />
+            <DetailField label="PID" value={status.pid} />
+            <DetailField label={t('settings.uptime')} value={formatUptime(status.uptime_seconds)} />
+            <DetailField label={t('settings.memory')} value={`${status.memory_mb} MB`} />
+            <DetailField label="Python" value={status.python_version} />
+            <DetailField label={t('settings.environment')} value={status.is_docker ? 'Docker' : 'System'} />
+          </DetailGrid>
+          {canWrite('settings') && !status.is_docker && (
+            <div className="pt-2">
+              <Button type="button" variant="outline" onClick={handleRestart} disabled={restarting}>
+                <ArrowClockwise size={16} className={restarting ? 'spin' : ''} />
+                {restarting ? t('settings.restarting') : t('settings.restartService')}
+              </Button>
+            </div>
+          )}
+          {status.is_docker && (
+            <p className="text-xs text-text-tertiary pt-2">{t('settings.dockerRestartNotice')}</p>
+          )}
+        </div>
+      ) : (
+        <p className="text-secondary">{t('settings.serviceStatusUnavailable')}</p>
+      )}
+    </DetailSection>
+    </>
+  )
+}
+
+function AboutSection() {
+  const { t } = useTranslation()
+  const [info, setInfo] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchInfo = async () => {
+      try {
+        const response = await systemService.getServiceStatus()
+        setInfo(response.data)
+      } catch {
+        setInfo(null)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchInfo()
+  }, [])
+
+  const formatUptime = (seconds) => {
+    if (!seconds) return '—'
+    const d = Math.floor(seconds / 86400)
+    const h = Math.floor((seconds % 86400) / 3600)
+    const m = Math.floor((seconds % 3600) / 60)
+    if (d > 0) return `${d}d ${h}h ${m}m`
+    if (h > 0) return `${h}h ${m}m`
+    return `${m}m`
+  }
+
+  return (
+    <DetailContent>
+      <DetailHeader
+        icon={Info}
+        title={t('settings.about.title')}
+        subtitle={t('settings.about.subtitle')}
+      />
+
+      {/* Logo & branding */}
+      <div className="flex flex-col items-center py-6 mb-4">
+        <Logo variant="vertical" size="lg" />
+        <div className="mt-3">
+          <Badge variant="accent" size="sm">
+            {loading ? '...' : `v${info?.version || __APP_VERSION__}`}
+          </Badge>
+        </div>
+      </div>
+
+      {/* System info */}
+      <DetailSection title={t('settings.about.systemInfo')} icon={HardDrives} iconClass="icon-bg-teal">
+        <DetailGrid>
+          <DetailField label={t('settings.about.version')} value={info?.version || '—'} />
+          <DetailField label={t('settings.about.pythonVersion')} value={info?.python_version || '—'} />
+          <DetailField label={t('settings.about.uptime')} value={formatUptime(info?.uptime_seconds)} />
+          <DetailField label={t('settings.about.memory')} value={info?.memory_mb ? `${info.memory_mb} MB` : '—'} />
+          <DetailField label={t('settings.about.environment')} value={info?.is_docker ? 'Docker' : 'Native'} />
+        </DetailGrid>
+      </DetailSection>
+
+      {/* Links */}
+      <DetailSection title={t('settings.about.links')} icon={Globe} iconClass="icon-bg-teal" className="mt-4">
+        <div className="space-y-2">
+          <a
+            href="https://github.com/NeySlim/ultimate-ca-manager"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 p-3 bg-tertiary-50 border border-border rounded-lg hover:bg-bg-tertiary transition-colors"
+          >
+            <GithubLogo size={20} className="text-text-secondary" />
+            <div>
+              <div className="text-sm font-medium text-text-primary">GitHub</div>
+              <div className="text-xs text-text-secondary">{t('settings.about.sourceCode')}</div>
+            </div>
+          </a>
+          <a
+            href="https://github.com/NeySlim/ultimate-ca-manager/issues"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 p-3 bg-tertiary-50 border border-border rounded-lg hover:bg-bg-tertiary transition-colors"
+          >
+            <WarningCircle size={20} className="text-text-secondary" />
+            <div>
+              <div className="text-sm font-medium text-text-primary">{t('settings.about.issues')}</div>
+              <div className="text-xs text-text-secondary">{t('settings.about.reportBugs')}</div>
+            </div>
+          </a>
+          <a
+            href="https://github.com/NeySlim/ultimate-ca-manager/wiki"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 p-3 bg-tertiary-50 border border-border rounded-lg hover:bg-bg-tertiary transition-colors"
+          >
+            <Globe size={20} className="text-text-secondary" />
+            <div>
+              <div className="text-sm font-medium text-text-primary">{t('settings.about.documentation')}</div>
+              <div className="text-xs text-text-secondary">{t('settings.about.wikiGuides')}</div>
+            </div>
+          </a>
+        </div>
+      </DetailSection>
+
+      {/* License */}
+      <DetailSection title={t('settings.about.license')} icon={Shield} iconClass="icon-bg-emerald" className="mt-4">
+        <div className="p-3 bg-tertiary-50 border border-border rounded-lg">
+          <p className="text-sm text-text-primary font-medium">MIT License</p>
+          <p className="text-xs text-text-secondary mt-1">
+            © 2024-2026 NeySlim — {t('settings.about.licenseDesc')}
+          </p>
+        </div>
+      </DetailSection>
+    </DetailContent>
+  )
+}
+
+function AppearanceSettings() {
+  const { t } = useTranslation()
+  const { themeFamily, setThemeFamily, mode, setMode, themes } = useTheme()
+  const { isMobile, forceDesktop, setForceDesktop, screenWidth, breakpoints } = useMobile()
+  
+  const modeOptions = [
+    { id: 'system', label: t('settings.followSystem'), icon: Desktop, description: t('settings.followSystemDesc') },
+    { id: 'light', label: t('settings.light'), icon: Sun, description: t('settings.lightDesc') },
+    { id: 'dark', label: t('settings.dark'), icon: Moon, description: t('settings.darkDesc') },
+  ]
+  
+  return (
+    <DetailContent>
+      <DetailHeader
+        icon={Palette}
+        title={t('settings.tabs.appearance')}
+        subtitle={t('settings.appearanceSubtitle')}
+      />
+      
+      <DetailSection title={t('settings.colorTheme')}>
+        <p className="text-sm text-text-secondary mb-4">
+          {t('settings.colorThemeDesc')}
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {themes.map(theme => (
+            <button
+              key={theme.id}
+              onClick={() => setThemeFamily(theme.id)}
+              className={`
+                p-4 rounded-lg border-2 transition-all text-left
+                ${themeFamily === theme.id 
+                  ? 'border-accent-primary bg-accent-primary-op10' 
+                  : 'border-border hover:border-text-tertiary bg-tertiary-50'
+                }
+              `}
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <div 
+                  className="w-5 h-5 rounded-full shadow-inner"
+                  style={{ background: theme.accent }}
+                />
+                <span className="font-medium text-sm text-text-primary">{theme.name}</span>
+              </div>
+              <div className="flex gap-1">
+                {/* Preview colors - show accent and distinct bg colors */}
+                <div className="w-6 h-3 rounded-sm" style={{ background: theme.accent }} />
+                <div className="w-6 h-3 rounded-sm" style={{ background: theme.dark['bg-tertiary'] }} />
+                <div className="w-6 h-3 rounded-sm" style={{ background: theme.light['bg-tertiary'] }} />
+                <div className="w-6 h-3 rounded-sm" style={{ background: theme.light['accent-primary'] || theme.accent }} />
+              </div>
+            </button>
+          ))}
+        </div>
+      </DetailSection>
+      
+      <DetailSection title={t('settings.appearanceMode')}>
+        <p className="text-sm text-text-secondary mb-4">
+          {t('settings.appearanceModeDesc')}
+        </p>
+        <div className="space-y-2">
+          {modeOptions.map(opt => {
+            const Icon = opt.icon
+            return (
+              <button
+                key={opt.id}
+                onClick={() => setMode(opt.id)}
+                className={`
+                  w-full p-4 rounded-lg border-2 transition-all text-left flex items-center gap-4
+                  ${mode === opt.id 
+                    ? 'border-accent-primary bg-accent-primary-op10' 
+                    : 'border-border hover:border-text-tertiary bg-tertiary-50'
+                  }
+                `}
+              >
+                <div className={`
+                  w-10 h-10 rounded-lg flex items-center justify-center
+                  ${mode === opt.id ? 'bg-accent-primary text-white' : 'bg-bg-secondary text-text-secondary'}
+                `}>
+                  <Icon size={20} weight={mode === opt.id ? 'fill' : 'regular'} />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-text-primary">{opt.label}</div>
+                  <div className="text-xs text-text-tertiary">{opt.description}</div>
+                </div>
+                {mode === opt.id && (
+                  <div className="w-5 h-5 rounded-full bg-accent-primary flex items-center justify-center">
+                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </DetailSection>
+      
+      <DetailSection title={t('settings.layoutMode')}>
+        <p className="text-sm text-text-secondary mb-4">
+          {t('settings.layoutModeDesc')}
+        </p>
+        <button
+          onClick={() => setForceDesktop(!forceDesktop)}
+          className={`
+            w-full p-4 rounded-lg border-2 transition-all text-left flex items-center gap-4
+            ${forceDesktop 
+              ? 'border-accent-primary bg-accent-primary-op10' 
+              : 'border-border hover:border-text-tertiary bg-tertiary-50'
+            }
+          `}
+        >
+          <div className={`
+            w-10 h-10 rounded-lg flex items-center justify-center
+            ${forceDesktop ? 'bg-accent-primary text-white' : 'bg-bg-secondary text-text-secondary'}
+          `}>
+            <Desktop size={20} weight={forceDesktop ? 'fill' : 'regular'} />
+          </div>
+          <div className="flex-1">
+            <div className="font-medium text-text-primary">{t('settings.forceDesktopLayout')}</div>
+            <div className="text-xs text-text-tertiary">
+              {forceDesktop 
+                ? t('settings.desktopLayoutEnabled') 
+                : t('settings.mobileLayoutActivates', { breakpoint: breakpoints.lg, current: screenWidth })
+              }
+            </div>
+          </div>
+          <div className={`
+            w-12 h-6 rounded-full transition-colors relative
+            ${forceDesktop ? 'bg-accent-primary' : 'bg-bg-secondary border border-border'}
+          `}>
+            <div className={`
+              absolute top-1 w-4 h-4 rounded-full transition-transform
+              ${forceDesktop 
+                ? 'bg-white translate-x-6' 
+                : 'bg-text-tertiary translate-x-1'
+              }
+            `} />
+          </div>
+        </button>
+        {forceDesktop && (
+          <p className="text-xs text-text-tertiary mt-2 flex items-center gap-1">
+            <Info size={12} />
+            {t('settings.settingSavedInBrowser')}
+          </p>
+        )}
+      </DetailSection>
+      
+      <DetailSection title={t('settings.language')}>
+        <p className="text-sm text-text-secondary mb-4">
+          {t('settings.languageDesc')}
+        </p>
+        <LanguageSelector />
+      </DetailSection>
+      
+      <DetailSection title={t('settings.preview')}>
+        <div className="p-4 rounded-lg bg-bg-tertiary border border-border">
+          <p className="text-sm text-text-secondary mb-2">{t('settings.currentSettings')}:</p>
+          <p className="text-text-primary">
+            <span className="font-medium">{themes.find(th => th.id === themeFamily)?.name}</span>
+            {' · '}
+            <span className="text-text-secondary">
+              {mode === 'system' ? t('settings.followingSystemPreference') : mode === 'dark' ? t('settings.darkMode') : t('settings.lightMode')}
+            </span>
+            {forceDesktop && (
+              <>
+                {' · '}
+                <span className="text-accent-primary">{t('settings.desktopForced')}</span>
+              </>
+            )}
+          </p>
+        </div>
+      </DetailSection>
+    </DetailContent>
+  )
+}
+
+// Copyable URL field for SSO SP metadata
+function CopyableUrl({ label, value, description }) {
+  const { showInfo } = useNotification()
+  const { t } = useTranslation()
+  const copy = () => {
+    navigator.clipboard.writeText(value)
+    showInfo(t('common.copiedToClipboard'))
+  }
+  return (
+    <div className="p-3 bg-bg-tertiary rounded-lg">
+      <p className="text-xs text-text-secondary mb-1">{label}</p>
+      {description && <p className="text-xs text-text-muted mb-1.5">{description}</p>}
+      <div className="flex items-center gap-2">
+        <code className="text-sm font-mono text-text-primary flex-1 break-all select-all">{value}</code>
+        <Button size="sm" variant="ghost" onClick={copy} type="button" title={t('common.copy')}>
+          <Copy size={14} />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// Key-value pair editor for attribute/role mapping
+function MappingEditor({ value, onChange, keyLabel, valueLabel, keyPlaceholder, valuePlaceholder, valueOptions }) {
+  const { t } = useTranslation()
+  const entries = Object.entries(value || {})
+
+  const updateEntry = (oldKey, newKey, newVal) => {
+    const updated = { ...value }
+    if (oldKey !== newKey) delete updated[oldKey]
+    updated[newKey] = newVal
+    onChange(updated)
+  }
+  const removeEntry = (key) => {
+    const updated = { ...value }
+    delete updated[key]
+    onChange(updated)
+  }
+  const addEntry = () => {
+    onChange({ ...value, '': '' })
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-[1fr_1fr_auto] gap-2 text-xs text-text-secondary">
+        <span>{keyLabel}</span><span>{valueLabel}</span><span />
+      </div>
+      {entries.map(([k, v], idx) => (
+        <div key={idx} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+          <Input
+            value={k}
+            onChange={e => updateEntry(k, e.target.value, v)}
+            placeholder={keyPlaceholder}
+            size="sm"
+          />
+          {valueOptions ? (
+            <Select
+              value={v}
+              onChange={val => updateEntry(k, k, val)}
+              options={valueOptions}
+              size="sm"
+            />
+          ) : (
+            <Input
+              value={v}
+              onChange={e => updateEntry(k, k, e.target.value)}
+              placeholder={valuePlaceholder}
+              size="sm"
+            />
+          )}
+          <Button type="button" size="sm" variant="ghost" onClick={() => removeEntry(k)}>
+            <Trash size={14} className="text-status-danger" />
+          </Button>
+        </div>
+      ))}
+      <Button size="sm" variant="secondary" onClick={addEntry} type="button">
+        <Plus size={14} /> {t('common.add')}
+      </Button>
+    </div>
+  )
+}
+
+// SSO Provider Form Component — Collapsible sections with Test Connection/Mapping
+function SsoProviderForm({ provider, forcedType, onSave, onCancel }) {
+  const { t } = useTranslation()
+  const { showSuccess, showError } = useNotification()
+  const providerType = provider?.provider_type || forcedType || 'ldap'
+  const [formData, setFormData] = useState({
+    name: provider?.name || '',
+    display_name: provider?.display_name || '',
+    provider_type: providerType,
+    enabled: provider?.enabled ?? false,
+    is_default: provider?.is_default ?? false,
+    default_role: provider?.default_role || 'viewer',
+    auto_create_users: provider?.auto_create_users ?? true,
+    auto_update_users: provider?.auto_update_users ?? true,
+    attribute_mapping: provider?.attribute_mapping || {},
+    role_mapping: provider?.role_mapping || {},
+    // LDAP
+    ldap_server: provider?.ldap_server || '',
+    ldap_port: provider?.ldap_port || 389,
+    ldap_use_ssl: provider?.ldap_use_ssl ?? false,
+    ldap_bind_dn: provider?.ldap_bind_dn || '',
+    ldap_bind_password: '',
+    ldap_base_dn: provider?.ldap_base_dn || '',
+    ldap_user_filter: provider?.ldap_user_filter || '(uid={username})',
+    ldap_group_filter: provider?.ldap_group_filter || '',
+    ldap_group_member_attr: provider?.ldap_group_member_attr || 'member',
+    ldap_username_attr: provider?.ldap_username_attr || 'uid',
+    ldap_email_attr: provider?.ldap_email_attr || 'mail',
+    ldap_fullname_attr: provider?.ldap_fullname_attr || 'cn',
+    // OAuth2
+    oauth2_client_id: provider?.oauth2_client_id || '',
+    oauth2_client_secret: '',
+    oauth2_auth_url: provider?.oauth2_auth_url || '',
+    oauth2_token_url: provider?.oauth2_token_url || '',
+    oauth2_userinfo_url: provider?.oauth2_userinfo_url || '',
+    oauth2_scopes: provider?.oauth2_scopes?.join(' ') || 'openid profile email',
+    // SAML
+    saml_metadata_url: provider?.saml_metadata_url || '',
+    saml_entity_id: provider?.saml_entity_id || '',
+    saml_sso_url: provider?.saml_sso_url || '',
+    saml_slo_url: provider?.saml_slo_url || '',
+    saml_certificate: provider?.saml_certificate || '',
+    saml_sign_requests: provider?.saml_sign_requests ?? true,
+    saml_sp_cert_source: provider?.saml_sp_cert_source || 'https',
+  })
+  const [fetchingMetadata, setFetchingMetadata] = useState(false)
+  const [availableCerts, setAvailableCerts] = useState([])
+  const [testingConnection, setTestingConnection] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState(null) // 'success' | 'error' | null
+  const [testingMapping, setTestingMapping] = useState(false)
+  const [testMappingUsername, setTestMappingUsername] = useState('')
+  const [testMappingResult, setTestMappingResult] = useState(null)
+  const [oauth2Preset, setOauth2Preset] = useState('custom')
+
+  // Load available certificates when SAML is selected
+  useEffect(() => {
+    if (formData.provider_type === 'saml') {
+      ssoService.getSamlCertificates()
+        .then(res => {
+          const certs = res.data || res
+          setAvailableCerts(Array.isArray(certs) ? certs : [])
+        })
+        .catch(() => setAvailableCerts([]))
+    }
+  }, [formData.provider_type])
+
+  const handleChange = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  const fetchIdpMetadata = async () => {
+    if (!formData.saml_metadata_url) return
+    setFetchingMetadata(true)
+    try {
+      const response = await ssoService.fetchIdpMetadata(formData.saml_metadata_url)
+      const meta = response.data
+      setFormData(prev => ({
+        ...prev,
+        saml_entity_id: meta.entity_id || prev.saml_entity_id,
+        saml_sso_url: meta.sso_url || prev.saml_sso_url,
+        saml_slo_url: meta.slo_url || prev.saml_slo_url,
+        saml_certificate: meta.certificate || prev.saml_certificate,
+      }))
+      showSuccess(t('sso.metadataFetched'))
+    } catch (err) {
+      showError(err.message || t('sso.metadataFetchFailed'))
+    } finally {
+      setFetchingMetadata(false)
+    }
+  }
+
+  const handleTestConnection = async () => {
+    if (!provider?.id) return
+    setTestingConnection(true)
+    setConnectionStatus(null)
+    try {
+      await ssoService.testProvider(provider.id)
+      setConnectionStatus('success')
+      showSuccess(t('sso.testConnectionSuccess'))
+    } catch (err) {
+      setConnectionStatus('error')
+      showError(err.message || t('sso.testConnectionFailed'))
+    } finally {
+      setTestingConnection(false)
+    }
+  }
+
+  const handleTestMapping = async () => {
+    if (!provider?.id || !testMappingUsername.trim()) return
+    setTestingMapping(true)
+    setTestMappingResult(null)
+    try {
+      const res = await ssoService.testMapping(provider.id, testMappingUsername.trim())
+      setTestMappingResult(res.data || res)
+    } catch (err) {
+      showError(err.message || t('sso.testMappingFailed'))
+    } finally {
+      setTestingMapping(false)
+    }
+  }
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    const data = { ...formData }
+    delete data._directoryType
+    if (data.provider_type === 'oauth2') {
+      data.oauth2_scopes = data.oauth2_scopes.split(/\s+/).filter(Boolean)
+    }
+    if (data.attribute_mapping) {
+      data.attribute_mapping = Object.fromEntries(
+        Object.entries(data.attribute_mapping).filter(([k, v]) => k && v)
+      )
+    }
+    if (data.role_mapping) {
+      data.role_mapping = Object.fromEntries(
+        Object.entries(data.role_mapping).filter(([k, v]) => k && v)
+      )
+    }
+    onSave(data)
+  }
+
+  // Apply OAuth2 preset
+  const applyOAuth2Preset = (preset) => {
+    setOauth2Preset(preset)
+    if (preset === 'azure') {
+      setFormData(prev => ({
+        ...prev,
+        oauth2_auth_url: 'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize',
+        oauth2_token_url: 'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token',
+        oauth2_userinfo_url: 'https://graph.microsoft.com/oidc/userinfo',
+        oauth2_scopes: 'openid profile email',
+      }))
+    } else if (preset === 'google') {
+      setFormData(prev => ({
+        ...prev,
+        oauth2_auth_url: 'https://accounts.google.com/o/oauth2/v2/auth',
+        oauth2_token_url: 'https://oauth2.googleapis.com/token',
+        oauth2_userinfo_url: 'https://openidconnect.googleapis.com/v1/userinfo',
+        oauth2_scopes: 'openid profile email',
+      }))
+    } else if (preset === 'github') {
+      setFormData(prev => ({
+        ...prev,
+        oauth2_auth_url: 'https://github.com/login/oauth/authorize',
+        oauth2_token_url: 'https://github.com/login/oauth/access_token',
+        oauth2_userinfo_url: 'https://api.github.com/user',
+        oauth2_scopes: 'read:user user:email',
+      }))
+    }
+  }
+
+  // SP metadata URLs
+  const baseUrl = window.location.origin
+  const spEntityId = `${baseUrl}/api/v2/sso`
+  const samlAcsUrl = `${baseUrl}/api/v2/sso/callback/saml`
+  const samlSloUrl = `${baseUrl}/api/v2/sso/callback/saml`
+  const oauthCallbackUrl = `${baseUrl}/api/v2/sso/callback/oauth2`
+
+  const roleOptions = [
+    { value: 'admin', label: t('common.admin') },
+    { value: 'operator', label: t('common.operator') },
+    { value: 'auditor', label: t('common.auditor') },
+    { value: 'viewer', label: t('common.viewer') },
+  ]
+
+  // Connection status badge for section header
+  const connectionBadge = connectionStatus === 'success' 
+    ? <Badge variant="success" size="sm" className="ml-2"><CheckCircle size={12} weight="bold" className="mr-1" />{t('sso.testConnectionSuccess')}</Badge>
+    : connectionStatus === 'error'
+    ? <Badge variant="error" size="sm" className="ml-2"><XCircle size={12} weight="bold" className="mr-1" />{t('sso.testConnectionFailed')}</Badge>
+    : null
+
+  const isLdap = formData.provider_type === 'ldap'
+  const isOauth2 = formData.provider_type === 'oauth2'
+  const isSaml = formData.provider_type === 'saml'
+
+  return (
+    <form onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[75vh] overflow-y-auto">
+      {/* General Settings — always visible */}
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            label={t('common.providerName')}
+            value={formData.name}
+            onChange={e => handleChange('name', e.target.value)}
+            required
+            placeholder={t('sso.providerNamePlaceholder')}
+          />
+          <Input
+            label={t('sso.displayName')}
+            value={formData.display_name}
+            onChange={e => handleChange('display_name', e.target.value)}
+            placeholder={t('sso.displayNamePlaceholder')}
+          />
+        </div>
+        <div className="flex gap-6">
+          <ToggleSwitch
+            checked={formData.enabled}
+            onChange={(val) => handleChange('enabled', val)}
+            label={t('common.enableProvider')}
+          />
+          <ToggleSwitch
+            checked={formData.is_default}
+            onChange={(val) => handleChange('is_default', val)}
+            label={t('sso.isDefault')}
+          />
+        </div>
+      </div>
+
+      {/* ── LDAP SECTIONS ── */}
+      {isLdap && (
+        <div className="space-y-3">
+          {/* Section 1: Connection */}
+          <CompactSection 
+            title={<span className="flex items-center">{t('sso.connectionSection')}{connectionBadge}</span>}
+            icon={Plugs} 
+            collapsible 
+            defaultOpen
+          >
+            <div className="space-y-3">
+              <Select
+                label={t('sso.directoryType')}
+                value={formData._directoryType || 'custom'}
+                onChange={value => {
+                  handleChange('_directoryType', value)
+                  if (value === 'openldap') {
+                    setFormData(prev => ({ ...prev, _directoryType: value, ldap_port: prev.ldap_port || 389, ldap_user_filter: '(uid={username})', ldap_username_attr: 'uid', ldap_email_attr: 'mail', ldap_fullname_attr: 'cn', ldap_group_filter: '(objectClass=groupOfNames)', ldap_group_member_attr: 'member' }))
+                  } else if (value === 'ad') {
+                    setFormData(prev => ({ ...prev, _directoryType: value, ldap_port: prev.ldap_use_ssl ? 636 : 389, ldap_user_filter: '(sAMAccountName={username})', ldap_username_attr: 'sAMAccountName', ldap_email_attr: 'mail', ldap_fullname_attr: 'displayName', ldap_group_filter: '(objectClass=group)', ldap_group_member_attr: 'memberOf' }))
+                  }
+                }}
+                options={[
+                  { value: 'openldap', label: 'OpenLDAP' },
+                  { value: 'ad', label: 'Active Directory' },
+                  { value: 'custom', label: t('common.custom') },
+                ]}
+              />
+              <div className="grid grid-cols-3 gap-4">
+                <Input
+                  label={t('sso.ldapServer')}
+                  value={formData.ldap_server}
+                  onChange={e => handleChange('ldap_server', e.target.value)}
+                  placeholder={formData._directoryType === 'ad' ? 'dc.example.com' : 'ldap.example.com'}
+                  className="col-span-2"
+                />
+                <Input
+                  label={t('common.portLabel')}
+                  type="number"
+                  value={formData.ldap_port}
+                  onChange={e => handleChange('ldap_port', parseInt(e.target.value))}
+                />
+              </div>
+              <ToggleSwitch
+                checked={formData.ldap_use_ssl}
+                onChange={(val) => {
+                  handleChange('ldap_use_ssl', val)
+                  if (formData._directoryType === 'ad') {
+                    handleChange('ldap_port', val ? 636 : 389)
+                  }
+                }}
+                label={t('sso.ldapUseSsl')}
+                size="sm"
+              />
+              <Input
+                label={t('sso.bindDn')}
+                value={formData.ldap_bind_dn}
+                onChange={e => handleChange('ldap_bind_dn', e.target.value)}
+                placeholder={formData._directoryType === 'ad' ? 'CN=svc-ldap,OU=Service Accounts,DC=example,DC=com' : t('sso.bindDnPlaceholder')}
+              />
+              <Input
+                label={t('sso.bindPassword')}
+                type="password"
+                noAutofill
+                value={formData.ldap_bind_password}
+                onChange={e => handleChange('ldap_bind_password', e.target.value)}
+                hasExistingValue={!!provider?.ldap_bind_password}
+              />
+              <Input
+                label={t('sso.baseDn')}
+                value={formData.ldap_base_dn}
+                onChange={e => handleChange('ldap_base_dn', e.target.value)}
+                placeholder={formData._directoryType === 'ad' ? 'DC=example,DC=com' : t('sso.baseDnPlaceholder')}
+              />
+              {provider?.id && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleTestConnection}
+                  disabled={testingConnection}
+                  className="gap-1.5"
+                >
+                  {testingConnection ? <LoadingSpinner size="xs" /> : <Plugs size={14} />}
+                  {t('sso.testConnection')}
+                </Button>
+              )}
+            </div>
+          </CompactSection>
+
+          {/* Section 2: User Search */}
+          <CompactSection 
+            title={t('sso.userSearchSection')} 
+            icon={MagnifyingGlass} 
+            collapsible 
+            defaultOpen={false}
+          >
+            <div className="space-y-3">
+              <Input
+                label={t('sso.userFilter')}
+                value={formData.ldap_user_filter}
+                onChange={e => handleChange('ldap_user_filter', e.target.value)}
+                placeholder={formData._directoryType === 'ad' ? '(sAMAccountName={username})' : t('sso.userFilterPlaceholder')}
+              />
+              <div className="grid grid-cols-3 gap-4">
+                <Input
+                  label={t('sso.usernameAttr')}
+                  value={formData.ldap_username_attr}
+                  onChange={e => handleChange('ldap_username_attr', e.target.value)}
+                  placeholder={formData._directoryType === 'ad' ? 'sAMAccountName' : 'uid'}
+                />
+                <Input
+                  label={t('sso.emailAttr')}
+                  value={formData.ldap_email_attr}
+                  onChange={e => handleChange('ldap_email_attr', e.target.value)}
+                  placeholder="mail"
+                />
+                <Input
+                  label={t('sso.fullnameAttr')}
+                  value={formData.ldap_fullname_attr}
+                  onChange={e => handleChange('ldap_fullname_attr', e.target.value)}
+                  placeholder={formData._directoryType === 'ad' ? 'displayName' : 'cn'}
+                />
+              </div>
+            </div>
+          </CompactSection>
+
+          {/* Section 3: Groups & Role Mapping */}
+          <CompactSection 
+            title={t('sso.groupsRolesSection')} 
+            icon={UsersThree} 
+            collapsible 
+            defaultOpen={false}
+          >
+            <div className="space-y-3">
+              <Input
+                label={t('sso.groupFilter')}
+                value={formData.ldap_group_filter}
+                onChange={e => handleChange('ldap_group_filter', e.target.value)}
+                placeholder={formData._directoryType === 'ad' ? '(objectClass=group)' : t('sso.groupFilterPlaceholder')}
+              />
+              <Select
+                label={t('sso.groupMemberAttr')}
+                value={formData.ldap_group_member_attr || 'member'}
+                onChange={value => handleChange('ldap_group_member_attr', value)}
+                options={[
+                  { value: 'memberOf', label: 'memberOf (Active Directory)' },
+                  { value: 'member', label: 'member (OpenLDAP / RFC 2307)' },
+                  { value: 'uniqueMember', label: 'uniqueMember (OpenLDAP groupOfUniqueNames)' },
+                ]}
+              />
+              <Select
+                label={t('sso.defaultRole')}
+                value={formData.default_role}
+                onChange={value => handleChange('default_role', value)}
+                options={roleOptions}
+              />
+              <div className="pt-1">
+                <p className="text-xs font-medium text-text-secondary mb-2">{t('sso.roleMapping')}</p>
+                <p className="text-xs text-text-muted mb-2">{t('sso.roleMappingHelp')}</p>
+                <MappingEditor
+                  value={formData.role_mapping}
+                  onChange={val => handleChange('role_mapping', val)}
+                  keyLabel={t('sso.externalGroup')}
+                  valueLabel={t('sso.ucmRole')}
+                  keyPlaceholder="e.g., pki-admins"
+                  valueOptions={roleOptions}
+                />
+              </div>
+
+              {/* Test Mapping */}
+              {provider?.id && (
+                <div className="pt-2 border-t border-border">
+                  <p className="text-xs text-text-muted mb-2">{t('sso.testMappingDesc')}</p>
+                  <div className="flex gap-2">
+                    <Input
+                      value={testMappingUsername}
+                      onChange={e => setTestMappingUsername(e.target.value)}
+                      placeholder={t('sso.testMappingUserPlaceholder')}
+                      className="flex-1"
+                      size="sm"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleTestMapping}
+                      disabled={testingMapping || !testMappingUsername.trim()}
+                      className="gap-1 whitespace-nowrap"
+                    >
+                      {testingMapping ? <LoadingSpinner size="xs" /> : <Play size={14} />}
+                      {t('sso.testMappingRun')}
+                    </Button>
+                  </div>
+                  {testMappingResult && (
+                    <div className="mt-2 p-2.5 rounded-lg border border-border bg-bg-secondary text-xs space-y-1">
+                      {testMappingResult.found === false ? (
+                        <p className="text-status-error">{t('sso.testMappingNotFound')}</p>
+                      ) : (
+                        <>
+                          <p><span className="text-text-secondary font-medium">DN:</span> <span className="text-text-muted font-mono">{testMappingResult.user_dn}</span></p>
+                          <p>
+                            <span className="text-text-secondary font-medium">{t('sso.testMappingGroups')}:</span>{' '}
+                            {testMappingResult.groups?.length > 0 
+                              ? testMappingResult.groups.map(g => <Badge key={g} variant="secondary" size="sm" className="mr-1">{g}</Badge>)
+                              : <span className="text-text-muted italic">{t('sso.testMappingNoGroups')}</span>
+                            }
+                          </p>
+                          <p>
+                            <span className="text-text-secondary font-medium">{t('sso.testMappingResolvedRole')}:</span>{' '}
+                            <Badge variant={testMappingResult.resolved_role === 'admin' ? 'error' : testMappingResult.resolved_role === 'operator' ? 'warning' : 'info'} size="sm">
+                              {testMappingResult.resolved_role}
+                            </Badge>
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </CompactSection>
+
+          {/* Section 4: Provisioning */}
+          <CompactSection 
+            title={t('sso.provisioningSection')} 
+            icon={UserPlus} 
+            collapsible 
+            defaultOpen={false}
+          >
+            <div className="space-y-2">
+              <ToggleSwitch
+                checked={formData.auto_create_users}
+                onChange={(val) => handleChange('auto_create_users', val)}
+                label={t('sso.autoCreateUsers')}
+              />
+              <ToggleSwitch
+                checked={formData.auto_update_users}
+                onChange={(val) => handleChange('auto_update_users', val)}
+                label={t('sso.autoUpdateUsers')}
+              />
+            </div>
+          </CompactSection>
+        </div>
+      )}
+
+      {/* ── OAUTH2 SECTIONS ── */}
+      {isOauth2 && (
+        <div className="space-y-3">
+          {/* Section 1: Provider Preset */}
+          <CompactSection 
+            title={t('sso.oauth2Preset')} 
+            icon={Lightning} 
+            collapsible 
+            defaultOpen
+          >
+            <div className="space-y-3">
+              <p className="text-xs text-text-muted">{t('sso.oauth2PresetHelp')}</p>
+              <div className="flex gap-2 flex-wrap">
+                {[
+                  { id: 'custom', label: t('sso.oauth2PresetCustom') },
+                  { id: 'azure', label: '🟦 Microsoft Entra' },
+                  { id: 'google', label: '🔵 Google' },
+                  { id: 'github', label: '⚫ GitHub' },
+                ].map(preset => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyOAuth2Preset(preset.id)}
+                    className={`px-3 py-1.5 text-xs rounded-lg border transition-all ${
+                      oauth2Preset === preset.id 
+                        ? 'border-accent bg-accent-op10 text-accent-primary font-medium' 
+                        : 'border-border bg-bg-secondary hover:bg-bg-tertiary text-text-secondary'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </CompactSection>
+
+          {/* Section 2: Connection */}
+          <CompactSection 
+            title={<span className="flex items-center">{t('sso.connectionSection')}{connectionBadge}</span>}
+            icon={Plugs} 
+            collapsible 
+            defaultOpen
+          >
+            <div className="space-y-3">
+              <Input
+                label={t('common.clientId')}
+                value={formData.oauth2_client_id}
+                onChange={e => handleChange('oauth2_client_id', e.target.value)}
+              />
+              <Input
+                label={t('common.clientSecret')}
+                type="password"
+                noAutofill
+                value={formData.oauth2_client_secret}
+                onChange={e => handleChange('oauth2_client_secret', e.target.value)}
+                hasExistingValue={!!provider?.oauth2_client_secret}
+              />
+              <Input
+                label={t('sso.authUrl')}
+                value={formData.oauth2_auth_url}
+                onChange={e => handleChange('oauth2_auth_url', e.target.value)}
+                placeholder={t('sso.authUrlPlaceholder')}
+              />
+              <Input
+                label={t('sso.tokenUrl')}
+                value={formData.oauth2_token_url}
+                onChange={e => handleChange('oauth2_token_url', e.target.value)}
+                placeholder={t('sso.tokenUrlPlaceholder')}
+              />
+              <Input
+                label={t('sso.userinfoUrl')}
+                value={formData.oauth2_userinfo_url}
+                onChange={e => handleChange('oauth2_userinfo_url', e.target.value)}
+                placeholder={t('sso.userinfoUrlPlaceholder')}
+              />
+              <Input
+                label={t('sso.scopes')}
+                value={formData.oauth2_scopes}
+                onChange={e => handleChange('oauth2_scopes', e.target.value)}
+                placeholder={t('sso.scopesPlaceholder')}
+              />
+              <CopyableUrl label={t('sso.redirectUri')} value={oauthCallbackUrl} />
+              {provider?.id && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleTestConnection}
+                  disabled={testingConnection}
+                  className="gap-1.5"
+                >
+                  {testingConnection ? <LoadingSpinner size="xs" /> : <Plugs size={14} />}
+                  {t('sso.testConnection')}
+                </Button>
+              )}
+            </div>
+          </CompactSection>
+
+          {/* Section 3: Attribute & Role Mapping */}
+          <CompactSection 
+            title={t('sso.attributeRoleMappingSection')} 
+            icon={TreeStructure} 
+            collapsible 
+            defaultOpen={false}
+          >
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-medium text-text-secondary mb-1">{t('sso.attributeMapping')}</p>
+                <p className="text-xs text-text-muted mb-2">{t('sso.attributeMappingHelp')}</p>
+                <MappingEditor
+                  value={formData.attribute_mapping}
+                  onChange={val => handleChange('attribute_mapping', val)}
+                  keyLabel={t('sso.ssoAttribute')}
+                  valueLabel={t('sso.ucmField')}
+                  keyPlaceholder="e.g., preferred_username"
+                  valuePlaceholder="e.g., username"
+                />
+              </div>
+              <div className="pt-2 border-t border-border">
+                <p className="text-xs font-medium text-text-secondary mb-1">{t('sso.roleMapping')}</p>
+                <p className="text-xs text-text-muted mb-2">{t('sso.roleMappingHelp')}</p>
+                <MappingEditor
+                  value={formData.role_mapping}
+                  onChange={val => handleChange('role_mapping', val)}
+                  keyLabel={t('sso.externalGroup')}
+                  valueLabel={t('sso.ucmRole')}
+                  keyPlaceholder="e.g., pki-admins"
+                  valueOptions={roleOptions}
+                />
+              </div>
+            </div>
+          </CompactSection>
+
+          {/* Section 4: Provisioning */}
+          <CompactSection 
+            title={t('sso.provisioningSection')} 
+            icon={UserPlus} 
+            collapsible 
+            defaultOpen={false}
+          >
+            <div className="space-y-3">
+              <Select
+                label={t('sso.defaultRole')}
+                value={formData.default_role}
+                onChange={value => handleChange('default_role', value)}
+                options={roleOptions}
+              />
+              <ToggleSwitch
+                checked={formData.auto_create_users}
+                onChange={(val) => handleChange('auto_create_users', val)}
+                label={t('sso.autoCreateUsers')}
+              />
+              <ToggleSwitch
+                checked={formData.auto_update_users}
+                onChange={(val) => handleChange('auto_update_users', val)}
+                label={t('sso.autoUpdateUsers')}
+              />
+            </div>
+          </CompactSection>
+        </div>
+      )}
+
+      {/* ── SAML SECTIONS ── */}
+      {isSaml && (
+        <div className="space-y-3">
+          {/* Section 1: Identity Provider (IdP) */}
+          <CompactSection 
+            title={<span className="flex items-center">{t('sso.idpSection')}{connectionBadge}</span>}
+            icon={Shield} 
+            collapsible 
+            defaultOpen
+          >
+            <div className="space-y-3">
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <Input
+                    label={t('sso.metadataUrl')}
+                    value={formData.saml_metadata_url}
+                    onChange={e => handleChange('saml_metadata_url', e.target.value)}
+                    placeholder="https://idp.example.com/saml/metadata"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={fetchIdpMetadata}
+                  disabled={fetchingMetadata || !formData.saml_metadata_url}
+                  className="mb-0.5 gap-1.5 whitespace-nowrap"
+                >
+                  {fetchingMetadata ? <LoadingSpinner size="xs" /> : <Download size={14} />}
+                  {t('sso.fetchMetadata')}
+                </Button>
+              </div>
+              <HelpCard variant="info" className="text-xs">
+                {t('sso.metadataUrlHelp')}
+              </HelpCard>
+              <Input
+                label={t('sso.entityId')}
+                value={formData.saml_entity_id}
+                onChange={e => handleChange('saml_entity_id', e.target.value)}
+                placeholder="https://idp.example.com/saml/metadata"
+              />
+              <Input
+                label={t('sso.ssoURL')}
+                value={formData.saml_sso_url}
+                onChange={e => handleChange('saml_sso_url', e.target.value)}
+                placeholder="https://idp.example.com/saml/sso"
+              />
+              <Input
+                label={t('sso.sloURL')}
+                value={formData.saml_slo_url}
+                onChange={e => handleChange('saml_slo_url', e.target.value)}
+                placeholder="https://idp.example.com/saml/slo"
+              />
+              <Textarea
+                label={t('sso.certificate')}
+                value={formData.saml_certificate}
+                onChange={e => handleChange('saml_certificate', e.target.value)}
+                rows={4}
+                placeholder="-----BEGIN CERTIFICATE-----..."
+                className="font-mono text-xs"
+              />
+              <ToggleSwitch
+                checked={formData.saml_sign_requests}
+                onChange={(val) => handleChange('saml_sign_requests', val)}
+                label={t('sso.signRequests')}
+              />
+              <Select
+                label={t('sso.spCertificate')}
+                value={formData.saml_sp_cert_source}
+                onChange={value => handleChange('saml_sp_cert_source', value)}
+                options={availableCerts.length > 0
+                  ? availableCerts.map(c => ({
+                      value: c.id,
+                      label: c.not_after
+                        ? `${c.label} (${new Date(c.not_after).toLocaleDateString()})`
+                        : c.label
+                    }))
+                  : [{ value: 'https', label: t('sso.httpsDefault') }]
+                }
+              />
+              {provider?.id && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleTestConnection}
+                  disabled={testingConnection}
+                  className="gap-1.5"
+                >
+                  {testingConnection ? <LoadingSpinner size="xs" /> : <Plugs size={14} />}
+                  {t('sso.testConnection')}
+                </Button>
+              )}
+            </div>
+          </CompactSection>
+
+          {/* Section 2: SP Endpoints */}
+          <CompactSection 
+            title={t('sso.spSection')} 
+            icon={Globe} 
+            collapsible 
+            defaultOpen={false}
+          >
+            <div className="space-y-3">
+              <HelpCard variant="info" className="text-xs">
+                {t('sso.spMetadataHelp')}
+              </HelpCard>
+              <CopyableUrl
+                label={t('sso.spMetadataXml')}
+                value={`${baseUrl}/api/v2/sso/saml/metadata`}
+                description={t('sso.spMetadataXmlDesc')}
+              />
+              <CopyableUrl label={t('sso.spEntityId')} value={spEntityId} />
+              <CopyableUrl label={t('sso.acsUrl')} value={samlAcsUrl} description={t('sso.acsUrlDesc')} />
+              <CopyableUrl label={t('sso.spSloUrl')} value={samlSloUrl} />
+            </div>
+          </CompactSection>
+
+          {/* Section 3: Attribute & Role Mapping */}
+          <CompactSection 
+            title={t('sso.attributeRoleMappingSection')} 
+            icon={TreeStructure} 
+            collapsible 
+            defaultOpen={false}
+          >
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-medium text-text-secondary mb-1">{t('sso.attributeMapping')}</p>
+                <p className="text-xs text-text-muted mb-2">{t('sso.attributeMappingHelp')}</p>
+                <MappingEditor
+                  value={formData.attribute_mapping}
+                  onChange={val => handleChange('attribute_mapping', val)}
+                  keyLabel={t('sso.ssoAttribute')}
+                  valueLabel={t('sso.ucmField')}
+                  keyPlaceholder="e.g., preferred_username"
+                  valuePlaceholder="e.g., username"
+                />
+              </div>
+              <div className="pt-2 border-t border-border">
+                <p className="text-xs font-medium text-text-secondary mb-1">{t('sso.roleMapping')}</p>
+                <p className="text-xs text-text-muted mb-2">{t('sso.roleMappingHelp')}</p>
+                <MappingEditor
+                  value={formData.role_mapping}
+                  onChange={val => handleChange('role_mapping', val)}
+                  keyLabel={t('sso.externalGroup')}
+                  valueLabel={t('sso.ucmRole')}
+                  keyPlaceholder="e.g., pki-admins"
+                  valueOptions={roleOptions}
+                />
+              </div>
+            </div>
+          </CompactSection>
+
+          {/* Section 4: Provisioning */}
+          <CompactSection 
+            title={t('sso.provisioningSection')} 
+            icon={UserPlus} 
+            collapsible 
+            defaultOpen={false}
+          >
+            <div className="space-y-3">
+              <Select
+                label={t('sso.defaultRole')}
+                value={formData.default_role}
+                onChange={value => handleChange('default_role', value)}
+                options={roleOptions}
+              />
+              <ToggleSwitch
+                checked={formData.auto_create_users}
+                onChange={(val) => handleChange('auto_create_users', val)}
+                label={t('sso.autoCreateUsers')}
+              />
+              <ToggleSwitch
+                checked={formData.auto_update_users}
+                onChange={(val) => handleChange('auto_update_users', val)}
+                label={t('sso.autoUpdateUsers')}
+              />
+            </div>
+          </CompactSection>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex justify-end gap-2 pt-4 border-t border-border">
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          {t('common.cancel')}
+        </Button>
+        <Button type="submit">
+          {provider ? t('common.save') : t('common.create')}
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+// Webhook Form Component
+const WEBHOOK_EVENTS = [
+  'certificate.issued',
+  'certificate.revoked',
+  'certificate.renewed',
+  'certificate.expiring',
+  'ca.created',
+  'ca.updated',
+  'csr.submitted',
+  'csr.approved',
+  'csr.rejected',
+]
+
+const WEBHOOK_EVENT_LABELS = {
+  'certificate.issued': 'Issued',
+  'certificate.revoked': 'Revoked',
+  'certificate.renewed': 'Renewed',
+  'certificate.expiring': 'Expiring',
+  'ca.created': 'CA Created',
+  'ca.updated': 'CA Updated',
+  'csr.submitted': 'CSR Submitted',
+  'csr.approved': 'CSR Approved',
+  'csr.rejected': 'CSR Rejected',
+}
+
+function WebhookForm({ webhook, onSave, onCancel }) {
+  const { t } = useTranslation()
+  const [formData, setFormData] = useState({
+    name: webhook?.name || '',
+    url: webhook?.url || '',
+    events: webhook?.events || [],
+    ca_filter: webhook?.ca_filter || '',
+    enabled: webhook?.enabled ?? true,
+  })
+
+  const handleChange = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  const toggleEvent = (event) => {
+    setFormData(prev => ({
+      ...prev,
+      events: prev.events.includes(event)
+        ? prev.events.filter(e => e !== event)
+        : [...prev.events, event]
+    }))
+  }
+
+  const toggleAllEvents = () => {
+    setFormData(prev => ({
+      ...prev,
+      events: prev.events.length === WEBHOOK_EVENTS.length ? [] : [...WEBHOOK_EVENTS]
+    }))
+  }
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    onSave(formData)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="p-4 space-y-4">
+      <Input
+        label={t('common.name')}
+        value={formData.name}
+        onChange={e => handleChange('name', e.target.value)}
+        required
+        placeholder={t('webhooks.namePlaceholder')}
+      />
+      <Input
+        label="URL"
+        value={formData.url}
+        onChange={e => handleChange('url', e.target.value)}
+        required
+        placeholder="https://example.com/webhook"
+      />
+      <Input
+        label={t('webhooks.caFilter')}
+        value={formData.ca_filter}
+        onChange={e => handleChange('ca_filter', e.target.value)}
+        placeholder={t('webhooks.caFilterPlaceholder')}
+      />
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-sm font-medium text-text-primary">{t('webhooks.events')}</label>
+          <button type="button" onClick={toggleAllEvents} className="text-xs text-accent-primary hover:underline">
+            {formData.events.length === WEBHOOK_EVENTS.length ? t('common.deselectAll') : t('common.selectAll')}
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {WEBHOOK_EVENTS.map(event => (
+            <label key={event} className="flex items-center gap-2 p-2 rounded-lg bg-tertiary-50 border border-border-op30 cursor-pointer hover:border-accent-primary-op50 transition-colors">
+              <input
+                type="checkbox"
+                checked={formData.events.includes(event)}
+                onChange={() => toggleEvent(event)}
+                className="rounded border-border bg-bg-tertiary"
+              />
+              <span className="text-xs text-text-primary">{WEBHOOK_EVENT_LABELS[event] || event}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <ToggleSwitch
+        checked={formData.enabled}
+        onChange={(val) => handleChange('enabled', val)}
+        label={t('webhooks.enableOnCreate')}
+      />
+
+      <div className="flex justify-end gap-2 pt-4 border-t border-border">
+        <Button type="button" variant="secondary" onClick={onCancel}>{t('common.cancel')}</Button>
+        <Button type="submit">
+          {webhook ? t('common.save') : t('common.create')}
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+export default function SettingsPage() {
+  const { t } = useTranslation()
+  const { showSuccess, showError, showConfirm, showPrompt, showWarning } = useNotification()
+  const { canWrite, hasPermission } = usePermission()
+  const { isMobile } = useMobile()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { waitForRestart } = useServiceReconnect()
+  
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [settings, setSettings] = useState({})
+  const [emailTestResult, setEmailTestResult] = useState(null) // { success, message }
+  const [emailTesting, setEmailTesting] = useState(false)
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false)
+  const [backups, setBackups] = useState([])
+  const [dbStats, setDbStats] = useState(null)
+  const [httpsInfo, setHttpsInfo] = useState(null)
+  const [certificates, setCertificates] = useState([])
+  const [selectedHttpsCert, setSelectedHttpsCert] = useState('')
+  const [cas, setCas] = useState([])
+  const [isDocker, setIsDocker] = useState(false)  
+  // Expiry alert settings
+  const [expiryAlerts, setExpiryAlerts] = useState({
+    enabled: true, alert_days: [30, 14, 7, 1], include_revoked: false, recipients: []
+  })
+  
+  // Selected category - read from URL param or default to 'general'
+  const [selectedCategory, setSelectedCategory] = useState(
+    searchParams.get('tab') || 'general'
+  )
+  
+  // Update URL when category changes
+  const handleCategoryChange = (categoryId) => {
+    setSelectedCategory(categoryId)
+    if (categoryId === 'general') {
+      searchParams.delete('tab')
+    } else {
+      searchParams.set('tab', categoryId)
+    }
+    setSearchParams(searchParams, { replace: true })
+  }
+  
+  // Backup modal states
+  const [showBackupModal, setShowBackupModal] = useState(false)
+  const [showRestoreModal, setShowRestoreModal] = useState(false)
+  const [backupPassword, setBackupPassword] = useState('')
+  const [restorePassword, setRestorePassword] = useState('')
+  const [restoreFile, setRestoreFile] = useState(null)
+  const [backupLoading, setBackupLoading] = useState(false)
+  
+  // HTTPS import modal
+  const [showHttpsImportModal, setShowHttpsImportModal] = useState(false)
+
+  // SSO states
+  const [ssoProviders, setSsoProviders] = useState([])
+  const [ssoLoading, setSsoLoading] = useState(false)
+  const [showSsoModal, setShowSsoModal] = useState(false)
+  const [editingSsoProvider, setEditingSsoProvider] = useState(null)
+  const [editingSsoType, setEditingSsoType] = useState(null) // for creating new: 'ldap' | 'oauth2' | 'saml'
+  const [ssoTesting, setSsoTesting] = useState(false)
+  const [ssoConfirmDelete, setSsoConfirmDelete] = useState(null)
+
+  // Webhook states
+  const [webhooks, setWebhooks] = useState([])
+  const [webhooksLoading, setWebhooksLoading] = useState(false)
+  const [showWebhookModal, setShowWebhookModal] = useState(false)
+  const [editingWebhook, setEditingWebhook] = useState(null)
+  const [webhookTesting, setWebhookTesting] = useState(null)
+  const [webhookConfirmDelete, setWebhookConfirmDelete] = useState(null)
+
+  // Encryption states
+  const [encryptionStatus, setEncryptionStatus] = useState(null)
+  const [showEnableEncryptionModal, setShowEnableEncryptionModal] = useState(false)
+  const [showDisableEncryptionModal, setShowDisableEncryptionModal] = useState(false)
+  const [encryptionLoading, setEncryptionLoading] = useState(false)
+  const [encryptionConfirmText, setEncryptionConfirmText] = useState('')
+  const [encryptionChecks, setEncryptionChecks] = useState({ backup: false, keyFile: false, lostKeys: false })
+
+  // Anomaly detection state
+  const [anomalies, setAnomalies] = useState([])
+  const [anomaliesLoading, setAnomaliesLoading] = useState(false)
+
+  // Syslog state
+  const [syslogConfig, setSyslogConfig] = useState({ enabled: false, host: '', port: 514, protocol: 'udp', tls: false, categories: ['certificate', 'ca', 'csr', 'user', 'acme', 'scep', 'system'] })
+  const [syslogTesting, setSyslogTesting] = useState(false)
+  const [syslogSaving, setSyslogSaving] = useState(false)
+
+  // mTLS state
+  const [mtlsSettings, setMtlsSettings] = useState({ enabled: false, required: false, trusted_ca_id: '', trusted_ca: null })
+  const [mtlsLoading, setMtlsLoading] = useState(false)
+  const [mtlsSaving, setMtlsSaving] = useState(false)
+
+  // All settings categories (SSO now integrated directly)
+  const SETTINGS_CATEGORIES = BASE_SETTINGS_CATEGORIES
+
+  useEffect(() => {
+    loadSettings()
+    loadBackups()
+    loadHttpsInfo()
+    loadCAs()
+    loadCertificates()
+    loadDbStats()
+    loadSsoProviders()
+    loadWebhooks()
+    loadEncryptionStatus()
+    loadAnomalies()
+    loadExpiryAlerts()
+    loadSyslogConfig()
+    loadMtlsSettings()
+    systemService.getServiceStatus().then(r => setIsDocker(r.data?.is_docker || false)).catch(() => {})
+  }, [])
+
+  const loadSettings = async () => {
+    setLoading(true)
+    try {
+      const [generalRes, emailRes] = await Promise.all([
+        settingsService.getAll(),
+        settingsService.getEmailSettings().catch(() => ({ data: {} }))
+      ])
+      const generalSettings = generalRes.data || generalRes || {}
+      const emailSettings = emailRes.data || {}
+      
+      // Merge email settings with mapped field names
+      setSettings({
+        ...generalSettings,
+        smtp_host: emailSettings.smtp_host,
+        smtp_port: emailSettings.smtp_port,
+        smtp_username: emailSettings.smtp_username,
+        smtp_password: emailSettings.smtp_password,
+        smtp_use_tls: emailSettings.smtp_tls,
+        smtp_from_email: emailSettings.from_email,
+        smtp_from_name: emailSettings.from_name,
+        smtp_auth: emailSettings.smtp_auth !== false,
+        smtp_content_type: emailSettings.smtp_content_type || 'html',
+      })
+    } catch (error) {
+      showError(error.message || t('messages.errors.loadFailed.settings'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadExpiryAlerts = async () => {
+    try {
+      const res = await apiClient.get('/system/alerts/expiry')
+      setExpiryAlerts(res.data || res)
+    } catch (e) {}
+  }
+
+  const saveExpiryAlerts = async () => {
+    setSaving(true)
+    try {
+      await apiClient.put('/system/alerts/expiry', expiryAlerts)
+      showSuccess(t('common.saved'))
+    } catch (e) {
+      showError(e.message || t('common.saveFailed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const triggerExpiryCheck = async () => {
+    try {
+      const res = await apiClient.post('/system/alerts/expiry/check')
+      const data = res.data || res
+      showSuccess(t('settings.expiryCheckResult', { count: data.alerts_sent || 0 }))
+    } catch (e) {
+      showError(e.message || t('common.error'))
+    }
+  }
+
+  const loadCAs = async () => {
+    try {
+      const data = await casService.getAll()
+      setCas(data.data || [])
+    } catch (error) {
+    }
+  }
+
+  const loadBackups = async () => {
+    try {
+      const data = await systemService.listBackups()
+      setBackups(data.data || [])
+    } catch (error) {
+    }
+  }
+
+  const loadHttpsInfo = async () => {
+    try {
+      const data = await systemService.getHttpsCertInfo()
+      setHttpsInfo(data.data || {})
+    } catch (error) {
+    }
+  }
+
+  const loadDbStats = async () => {
+    try {
+      const data = await systemService.getDatabaseStats()
+      const stats = data.data || {}
+      setDbStats({
+        certificates: stats.counts?.certificates || 0,
+        cas: stats.counts?.cas || 0,
+        size: stats.size_mb ? `${stats.size_mb} MB` : '-',
+        last_optimized: stats.last_vacuum || 'Never'
+      })
+    } catch (error) {
+    }
+  }
+
+  // SSO Functions
+  const loadSsoProviders = async () => {
+    setSsoLoading(true)
+    try {
+      const response = await ssoService.getProviders()
+      setSsoProviders(response.data || [])
+    } catch (error) {
+    } finally {
+      setSsoLoading(false)
+    }
+  }
+
+  const handleSsoCreate = (providerType) => {
+    setEditingSsoProvider(null)
+    setEditingSsoType(providerType)
+    setShowSsoModal(true)
+  }
+
+  const handleSsoEdit = (provider) => {
+    setEditingSsoProvider(provider)
+    setEditingSsoType(null)
+    setShowSsoModal(true)
+  }
+
+  const handleSsoSave = async (formData) => {
+    try {
+      if (editingSsoProvider) {
+        await ssoService.updateProvider(editingSsoProvider.id, formData)
+        showSuccess(t('sso.updateSuccess'))
+      } else {
+        await ssoService.createProvider(formData)
+        showSuccess(t('sso.createSuccess'))
+      }
+      setShowSsoModal(false)
+      loadSsoProviders()
+    } catch (error) {
+      showError(error.message || t('sso.saveFailed'))
+    }
+  }
+
+  const handleSsoDelete = async () => {
+    if (!ssoConfirmDelete) return
+    try {
+      await ssoService.deleteProvider(ssoConfirmDelete.id)
+      showSuccess(t('sso.deleteSuccess'))
+      loadSsoProviders()
+    } catch (error) {
+      showError(t('sso.deleteFailed'))
+    } finally {
+      setSsoConfirmDelete(null)
+    }
+  }
+
+  const handleSsoToggle = async (provider) => {
+    try {
+      await ssoService.toggleProvider(provider.id)
+      showSuccess(t('sso.toggleSuccess', { action: provider.enabled ? t('common.disabled').toLowerCase() : t('common.enabled').toLowerCase() }))
+      loadSsoProviders()
+    } catch (error) {
+      showError(t('sso.toggleFailed'))
+    }
+  }
+
+  const handleSsoTest = async (provider) => {
+    setSsoTesting(true)
+    try {
+      const response = await ssoService.testProvider(provider.id)
+      if (response.data?.status === 'success') {
+        showSuccess(response.data.message || t('sso.testSuccess'))
+      } else {
+        showError(response.message || t('common.dnsProviderTestFailed'))
+      }
+    } catch (error) {
+      showError(error.message || t('common.dnsProviderTestFailed'))
+    } finally {
+      setSsoTesting(false)
+    }
+  }
+
+  // Webhook handlers
+  const loadWebhooks = async () => {
+    setWebhooksLoading(true)
+    try {
+      const response = await apiClient.get('/webhooks')
+      setWebhooks(response.data || [])
+    } catch (error) {
+    } finally {
+      setWebhooksLoading(false)
+    }
+  }
+
+  const handleWebhookCreate = () => {
+    setEditingWebhook(null)
+    setShowWebhookModal(true)
+  }
+
+  const handleWebhookEdit = (webhook) => {
+    setEditingWebhook(webhook)
+    setShowWebhookModal(true)
+  }
+
+  const handleWebhookSave = async (formData) => {
+    try {
+      if (editingWebhook) {
+        await apiClient.put(`/webhooks/${editingWebhook.id}`, formData)
+        showSuccess(t('webhooks.updateSuccess'))
+      } else {
+        await apiClient.post('/webhooks', formData)
+        showSuccess(t('webhooks.createSuccess'))
+      }
+      setShowWebhookModal(false)
+      loadWebhooks()
+    } catch (error) {
+      showError(error.message || t('webhooks.saveFailed'))
+    }
+  }
+
+  const handleWebhookDelete = async () => {
+    if (!webhookConfirmDelete) return
+    try {
+      await apiClient.delete(`/webhooks/${webhookConfirmDelete.id}`)
+      showSuccess(t('webhooks.deleteSuccess'))
+      loadWebhooks()
+    } catch (error) {
+      showError(t('webhooks.deleteFailed'))
+    } finally {
+      setWebhookConfirmDelete(null)
+    }
+  }
+
+  const handleWebhookToggle = async (webhook) => {
+    try {
+      await apiClient.post(`/webhooks/${webhook.id}/toggle`)
+      showSuccess(t('webhooks.toggleSuccess', { action: webhook.enabled ? t('common.disabled').toLowerCase() : t('common.enabled').toLowerCase() }))
+      loadWebhooks()
+    } catch (error) {
+      showError(t('webhooks.toggleFailed'))
+    }
+  }
+
+  const handleWebhookTest = async (webhook) => {
+    setWebhookTesting(webhook.id)
+    try {
+      await apiClient.post(`/webhooks/${webhook.id}/test`)
+      showSuccess(t('webhooks.testSuccess'))
+    } catch (error) {
+      showError(error.message || t('webhooks.testFailed'))
+    } finally {
+      setWebhookTesting(null)
+    }
+  }
+
+  const loadCertificates = async () => {
+    try {
+      const data = await certificatesService.getAll({ status: 'valid' })
+      const validCerts = (data.data || []).filter(cert => 
+        cert.has_private_key && 
+        cert.status === 'valid' &&
+        new Date(cert.valid_to) > new Date()
+      )
+      setCertificates(validCerts)
+    } catch (error) {
+    }
+  }
+
+  // Encryption management
+  const loadEncryptionStatus = async () => {
+    try {
+      const response = await apiClient.get('/system/security/encryption-status')
+      setEncryptionStatus(response.data)
+    } catch (error) {
+    }
+  }
+
+  const handleEnableEncryption = async () => {
+    setEncryptionLoading(true)
+    try {
+      await apiClient.post('/system/security/enable-encryption')
+      showSuccess(t('settings.encryptionEnabled'))
+      setShowEnableEncryptionModal(false)
+      setEncryptionConfirmText('')
+      setEncryptionChecks({ backup: false, keyFile: false, lostKeys: false })
+      await loadEncryptionStatus()
+    } catch (error) {
+      showError(error.message || t('settings.encryptionEnableFailed'))
+    } finally {
+      setEncryptionLoading(false)
+    }
+  }
+
+  const handleDisableEncryption = async () => {
+    setEncryptionLoading(true)
+    try {
+      await apiClient.post('/system/security/disable-encryption')
+      showSuccess(t('settings.encryptionDisabled'))
+      setShowDisableEncryptionModal(false)
+      await loadEncryptionStatus()
+    } catch (error) {
+      showError(error.message || t('settings.encryptionDisableFailed'))
+    } finally {
+      setEncryptionLoading(false)
+    }
+  }
+
+  // Anomaly detection
+  const loadAnomalies = async () => {
+    setAnomaliesLoading(true)
+    try {
+      const response = await apiClient.get('/system/security/anomalies')
+      setAnomalies(response.data?.anomalies || response.anomalies || [])
+    } catch (error) {
+    } finally {
+      setAnomaliesLoading(false)
+    }
+  }
+
+  // Syslog config
+  const loadSyslogConfig = async () => {
+    try {
+      const response = await apiClient.get('/system/audit/syslog')
+      setSyslogConfig(response.data || response)
+    } catch (error) {
+    }
+  }
+
+  const handleSaveSyslog = async () => {
+    setSyslogSaving(true)
+    try {
+      await apiClient.put('/system/audit/syslog', syslogConfig)
+      showSuccess(t('settings.syslogSaved'))
+    } catch (error) {
+      showError(error.message || t('settings.syslogSaveFailed'))
+    } finally {
+      setSyslogSaving(false)
+    }
+  }
+
+  const handleTestSyslog = async () => {
+    setSyslogTesting(true)
+    try {
+      const response = await apiClient.post('/system/audit/syslog/test')
+      showSuccess(response.message || t('settings.syslogTestSuccess'))
+    } catch (error) {
+      showError(error.message || t('settings.syslogTestFailed'))
+    } finally {
+      setSyslogTesting(false)
+    }
+  }
+
+  const updateSyslogConfig = (key, value) => {
+    setSyslogConfig(prev => ({ ...prev, [key]: value }))
+  }
+
+  const loadMtlsSettings = async () => {
+    setMtlsLoading(true)
+    try {
+      const response = await mtlsService.getSettings()
+      setMtlsSettings(response.data || {})
+    } catch {
+    } finally {
+      setMtlsLoading(false)
+    }
+  }
+
+  const handleMtlsSave = async () => {
+    setMtlsSaving(true)
+    try {
+      const response = await mtlsService.updateSettings({
+        enabled: mtlsSettings.enabled,
+        required: mtlsSettings.required,
+        trusted_ca_id: mtlsSettings.trusted_ca_id || null,
+      })
+      const data = response.data || {}
+      setMtlsSettings(prev => ({ ...prev, ...data }))
+      showSuccess(t('settings.mtls.saved'))
+      if (data.needs_restart && !isDocker) {
+        waitForRestart()
+      } else if (data.restart_message) {
+        showWarning(data.restart_message)
+      }
+    } catch (error) {
+      showError(error.message || t('settings.mtls.saveFailed'))
+    } finally {
+      setMtlsSaving(false)
+    }
+  }
+
+  const handleSave = async (section) => {
+    setSaving(true)
+    try {
+      if (section === 'email') {
+        // Email settings go to a different endpoint with mapped field names
+        await settingsService.updateEmailSettings({
+          smtp_host: settings.smtp_host,
+          smtp_port: settings.smtp_port,
+          smtp_username: settings.smtp_auth !== false ? settings.smtp_username : '',
+          smtp_password: settings.smtp_auth !== false ? settings.smtp_password : '',
+          smtp_tls: settings.smtp_use_tls,
+          smtp_auth: settings.smtp_auth !== false,
+          smtp_content_type: settings.smtp_content_type || 'html',
+          from_email: settings.smtp_from_email,
+          from_name: settings.smtp_from_name,
+          enabled: true
+        })
+      } else {
+        await settingsService.updateBulk(settings)
+      }
+      showSuccess(t('messages.success.update.settings'))
+      await loadSettings()
+    } catch (error) {
+      showError(error.message || t('messages.errors.updateFailed.settings'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleTestEmail = async () => {
+    const testEmail = settings._testRecipient || settings.smtp_from_email
+    if (!testEmail) {
+      setEmailTestResult({ success: false, message: t('settings.testRecipientRequired') })
+      return
+    }
+    setEmailTesting(true)
+    setEmailTestResult(null)
+    try {
+      await settingsService.testEmail(testEmail)
+      setEmailTestResult({ success: true, message: `${t('settings.testEmailSuccess')} → ${testEmail}` })
+      showSuccess(t('messages.success.email.testSent'))
+    } catch (error) {
+      const msg = error?.data?.message || error?.data?.error || error.message || t('messages.errors.email.testFailed')
+      setEmailTestResult({ success: false, message: msg })
+    } finally {
+      setEmailTesting(false)
+    }
+  }
+
+  const handleBackup = async () => {
+    if (!backupPassword || backupPassword.length < 12) {
+      showError(t('settings.passwordMinLength'))
+      return
+    }
+    
+    setBackupLoading(true)
+    try {
+      const response = await systemService.backup(backupPassword)
+      if (response.data) {
+        const blob = await systemService.downloadBackup(response.data.filename)
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = response.data.filename
+        a.click()
+        URL.revokeObjectURL(url)
+        showSuccess(t('messages.success.backup.created'))
+        setShowBackupModal(false)
+        setBackupPassword('')
+        loadBackups()
+      }
+    } catch (error) {
+      showError(error.message || t('messages.errors.backup.createFailed'))
+    } finally {
+      setBackupLoading(false)
+    }
+  }
+
+  const handleDownloadBackup = async (filename) => {
+    try {
+      const blob = await systemService.downloadBackup(filename)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+      showSuccess(t('messages.success.backup.downloaded'))
+    } catch (error) {
+      showError(error.message || t('messages.errors.backup.downloadFailed'))
+    }
+  }
+
+  const handleDeleteBackup = async (filename) => {
+    const confirmed = await showConfirm(t('settings.confirmDeleteBackup', { filename }), {
+      title: t('settings.deleteBackup'),
+      confirmText: t('common.delete'),
+      variant: 'danger'
+    })
+    if (!confirmed) return
+    
+    try {
+      await systemService.deleteBackup(filename)
+      showSuccess(t('messages.success.backup.deleted'))
+      loadBackups()
+    } catch (error) {
+      showError(error.message || t('messages.errors.deleteFailed.backup'))
+    }
+  }
+
+  const handleRestoreBackup = async () => {
+    if (!restoreFile) {
+      showError(t('settings.selectBackupFile'))
+      return
+    }
+    if (!restorePassword || restorePassword.length < 12) {
+      showError(t('settings.passwordMinLength'))
+      return
+    }
+    
+    setBackupLoading(true)
+    try {
+      const result = await systemService.restore(restoreFile, restorePassword)
+      showSuccess(t('settings.backupRestored', { users: result.data?.users || 0, cas: result.data?.cas || 0, certs: result.data?.certificates || 0 }))
+      setShowRestoreModal(false)
+      setRestorePassword('')
+      setRestoreFile(null)
+      setTimeout(() => window.location.reload(), 2000)
+    } catch (error) {
+      showError(error.message || t('messages.errors.backup.restoreFailed'))
+    } finally {
+      setBackupLoading(false)
+    }
+  }
+
+  const handleOptimizeDb = async () => {
+    try {
+      await systemService.optimizeDatabase()
+      showSuccess(t('messages.success.database.optimized'))
+    } catch (error) {
+      showError(error.message || t('messages.errors.database.optimizeFailed'))
+    }
+  }
+
+  const handleIntegrityCheck = async () => {
+    try {
+      const result = await systemService.integrityCheck()
+      if (result.passed) {
+        showSuccess(t('messages.success.database.integrityPassed'))
+      } else {
+        showError(t('settings.integrityErrors', { count: result.errors }))
+      }
+    } catch (error) {
+      showError(error.message || t('messages.errors.database.integrityFailed'))
+    }
+  }
+
+  const handleExportDb = async () => {
+    try {
+      const blob = await systemService.exportDatabase()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `ucm-database-${new Date().toISOString().split('T')[0]}.sql`
+      a.click()
+      showSuccess(t('messages.success.export.database'))
+    } catch (error) {
+      showError(error.message || t('messages.errors.database.exportFailed'))
+    }
+  }
+
+  const handleResetDb = async () => {
+    const confirmed1 = await showConfirm(t('settings.resetDbWarning'), {
+      title: t('settings.resetDatabase'),
+      confirmText: t('common.next'),
+      variant: 'danger'
+    })
+    if (!confirmed1) return
+
+    const confirmation = await showPrompt(t('settings.typeYesToConfirm'), {
+      title: t('settings.finalConfirmation'),
+      placeholder: 'YES'
+    })
+    if (confirmation !== 'YES') {
+      showError(t('settings.resetDbCancelled'))
+      return
+    }
+
+    try {
+      await systemService.resetDatabase()
+      showSuccess(t('messages.success.database.reset'))
+      setTimeout(() => window.location.reload(), 2000)
+    } catch (error) {
+      showError(error.message || t('messages.errors.database.resetFailed'))
+    }
+  }
+
+  const handleApplyUcmCert = async () => {
+    if (!selectedHttpsCert) {
+      showError(t('settings.selectCertificate'))
+      return
+    }
+
+    const confirmed = await showConfirm(t('settings.applyHttpsCertConfirm'), {
+      title: t('settings.applyCertificate'),
+      confirmText: t('settings.applyAndRestart')
+    })
+    if (!confirmed) return
+    
+    try {
+      const response = await systemService.applyHttpsCert({
+        cert_id: selectedHttpsCert
+      })
+      if (response.data?.requires_container_restart) {
+        showSuccess(t('settings.dockerCertNotice'))
+      } else {
+        showSuccess(t('messages.success.https.applied'))
+        waitForRestart()
+      }
+    } catch (error) {
+      if (!isDocker && (error.message?.includes('Failed to fetch') || error.code === 'ERR_NETWORK')) {
+        waitForRestart()
+      } else {
+        showError(error.message || t('messages.errors.https.applyFailed'))
+      }
+    }
+  }
+
+  const handleRegenerateHttpsCert = async () => {
+    const confirmed = await showConfirm(t('settings.regenerateCertConfirm'), {
+      title: t('settings.regenerateCert'),
+      confirmText: t('settings.regenerateAndRestart')
+    })
+    if (!confirmed) return
+    
+    try {
+      const response = await systemService.regenerateHttpsCert({
+        common_name: window.location.hostname,
+        validity_days: 365
+      })
+      if (response.data?.requires_container_restart) {
+        showSuccess(t('settings.dockerCertNotice'))
+      } else {
+        showSuccess(t('messages.success.https.regenerated'))
+        waitForRestart()
+      }
+    } catch (error) {
+      if (!isDocker && (error.message?.includes('Failed to fetch') || error.code === 'ERR_NETWORK')) {
+        waitForRestart()
+      } else {
+        showError(error.message || t('messages.errors.https.regenerateFailed'))
+      }
+    }
+  }
+
+  const updateSetting = (key, value) => {
+    setSettings(prev => ({ ...prev, [key]: value }))
+  }
+
+  // Render content for each category
+  const renderCategoryContent = () => {
+    switch (selectedCategory) {
+      case 'general':
+        return (
+          <DetailContent>
+            <DetailHeader
+              icon={Gear}
+              title={t('settings.helpGeneral')}
+              subtitle={t('settings.generalSubtitle')}
+            />
+            <DetailSection title={t('settings.subtitle')} icon={Gear} iconClass="icon-bg-blue">
+              <div className="space-y-4">
+                <Input
+                  label={t('settings.systemName')}
+                  value={settings.system_name || ''}
+                  onChange={(e) => updateSetting('system_name', e.target.value)}
+                  helperText={t('settings.systemNameHelper')}
+                />
+                <Input
+                  label={t('settings.baseUrl')}
+                  value={settings.base_url || ''}
+                  onChange={(e) => updateSetting('base_url', e.target.value)}
+                  placeholder={t('settings.baseUrlPlaceholder')}
+                  helperText={t('settings.baseUrlHelper')}
+                />
+              </div>
+            </DetailSection>
+            <DetailSection title={t('settings.sessionTimezone')} icon={Clock} iconClass="icon-bg-teal">
+              <div className="space-y-4">
+                <Input
+                  label={t('settings.sessionTimeout')}
+                  type="number"
+                  value={settings.session_timeout || 30}
+                  onChange={(e) => updateSetting('session_timeout', parseInt(e.target.value))}
+                  min="5"
+                  max="1440"
+                />
+                <Select
+                  label={t('settings.timezone')}
+                  options={[
+                    { value: 'UTC', label: 'UTC' },
+                    { value: 'America/New_York', label: 'America/New York' },
+                    { value: 'Europe/Paris', label: 'Europe/Paris' },
+                    { value: 'Asia/Tokyo', label: 'Asia/Tokyo' },
+                  ]}
+                  value={settings.timezone || 'UTC'}
+                  onChange={(val) => updateSetting('timezone', val)}
+                />
+                {canWrite('settings') && (
+                  <div className="pt-2">
+                    <Button type="button" onClick={() => handleSave('general')} disabled={saving}>
+                      <FloppyDisk size={16} />
+                      {t('common.saveChanges')}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </DetailSection>
+            <ServiceStatusWidget />
+          </DetailContent>
+        )
+
+      case 'appearance':
+        return <AppearanceSettings />
+
+      case 'email':
+        return (
+          <DetailContent>
+            <DetailHeader
+              icon={EnvelopeSimple}
+              title={t('settings.emailTitle')}
+              subtitle={t('settings.emailSubtitle')}
+            />
+            <DetailSection title={t('settings.smtpConfig')} icon={Envelope} iconClass="icon-bg-violet">
+              <div className="space-y-5">
+                {/* Server */}
+                <DetailGrid>
+                  <div className="col-span-full md:col-span-1">
+                    <Input
+                      label={t('settings.smtpHost')}
+                      value={settings.smtp_host || ''}
+                      onChange={(e) => updateSetting('smtp_host', e.target.value)}
+                      placeholder={t('settings.smtpHostPlaceholder')}
+                    />
+                  </div>
+                  <div className="col-span-full md:col-span-1">
+                    <Input
+                      label={t('settings.smtpPort')}
+                      type="number"
+                      value={settings.smtp_port || 587}
+                      onChange={(e) => updateSetting('smtp_port', parseInt(e.target.value))}
+                    />
+                  </div>
+                </DetailGrid>
+
+                {/* Authentication */}
+                <div className="border-t border-border pt-4 space-y-3">
+                  <ToggleSwitch
+                    checked={settings.smtp_auth !== false}
+                    onChange={(val) => {
+                      updateSetting('smtp_auth', val)
+                      if (!val) {
+                        updateSetting('smtp_username', '')
+                        updateSetting('smtp_password', '')
+                      }
+                    }}
+                    label={t('settings.smtpAuthRequired')}
+                    size="sm"
+                  />
+                  {!settings.smtp_auth && settings.smtp_auth !== undefined && (
+                    <p className="text-xs text-text-tertiary">{t('settings.smtpNoAuthHint')}</p>
+                  )}
+                  {settings.smtp_auth !== false && (
+                    <DetailGrid>
+                      <div className="col-span-full md:col-span-1">
+                        <Input
+                          label={t('settings.smtpUsername')}
+                          value={settings.smtp_username || ''}
+                          onChange={(e) => updateSetting('smtp_username', e.target.value)}
+                        />
+                      </div>
+                      <div className="col-span-full md:col-span-1">
+                        <Input
+                          label={t('settings.smtpPassword')}
+                          type="password"
+                          noAutofill
+                          value={settings.smtp_password === '********' ? '' : (settings.smtp_password || '')}
+                          onChange={(e) => updateSetting('smtp_password', e.target.value)}
+                          hasExistingValue={settings.smtp_password === '********'}
+                        />
+                      </div>
+                    </DetailGrid>
+                  )}
+                </div>
+
+                {/* Options */}
+                <div className="border-t border-border pt-4 space-y-3">
+                  <DetailGrid>
+                    <div className="col-span-full md:col-span-1">
+                      <Input
+                        label={t('settings.fromEmail')}
+                        type="email"
+                        value={settings.smtp_from_email || ''}
+                        onChange={(e) => updateSetting('smtp_from_email', e.target.value)}
+                        placeholder={t('settings.fromEmailPlaceholder')}
+                      />
+                    </div>
+                  </DetailGrid>
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+                    <ToggleSwitch
+                      checked={settings.smtp_use_tls || false}
+                      onChange={(val) => updateSetting('smtp_use_tls', val)}
+                      label={t('settings.useTls')}
+                      size="sm"
+                    />
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-text-secondary">{t('settings.emailFormat')}:</span>
+                      {['html', 'text', 'both'].map(fmt => (
+                        <button
+                          key={fmt}
+                          type="button"
+                          onClick={() => updateSetting('smtp_content_type', fmt)}
+                          className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                            (settings.smtp_content_type || 'html') === fmt
+                              ? 'bg-accent-primary text-white'
+                              : 'bg-bg-tertiary text-text-secondary hover:bg-bg-secondary'
+                          }`}
+                        >
+                          {t(`settings.emailFormat_${fmt}`)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Test result banner */}
+                {emailTestResult && (
+                  <div className={`flex items-start gap-3 p-3 rounded-lg text-sm ${
+                    emailTestResult.success
+                      ? 'bg-status-success-op10 text-status-success'
+                      : 'bg-status-danger-op10 text-status-danger'
+                  }`}>
+                    {emailTestResult.success
+                      ? <CheckCircle size={18} className="shrink-0 mt-0.5" />
+                      : <WarningCircle size={18} className="shrink-0 mt-0.5" />
+                    }
+                    <span className="break-all">{emailTestResult.message}</span>
+                  </div>
+                )}
+
+                {/* Actions */}
+                {canWrite('settings') && (
+                  <div className="space-y-3 pt-1">
+                    <DetailGrid>
+                      <div className="col-span-full md:col-span-1">
+                        <Input
+                          label={t('settings.testRecipient')}
+                          type="email"
+                          value={settings._testRecipient || ''}
+                          onChange={(e) => updateSetting('_testRecipient', e.target.value)}
+                          placeholder={settings.smtp_from_email || 'admin@example.com'}
+                        />
+                      </div>
+                      <div className="col-span-full md:col-span-1 flex items-end gap-2">
+                        <Button type="button" variant="secondary" onClick={handleTestEmail} disabled={emailTesting}>
+                          {emailTesting ? <ArrowsClockwise size={16} className="animate-spin" /> : <Envelope size={16} />}
+                          {t('settings.testEmail')}
+                        </Button>
+                        <Button type="button" onClick={() => handleSave('email')} disabled={saving}>
+                          <FloppyDisk size={16} />
+                          {t('common.save')}
+                        </Button>
+                      </div>
+                    </DetailGrid>
+                  </div>
+                )}
+              </div>
+            </DetailSection>
+
+            {/* Email Template */}
+            <DetailSection title={t('settings.emailTemplate')} icon={EnvelopeSimple} iconClass="icon-bg-indigo">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-text-secondary">{t('settings.templateDescription')}</p>
+                <div className="relative group shrink-0">
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setShowTemplateEditor(true)} disabled={isMobile}>
+                    <PencilSimple size={16} />
+                    {t('settings.editTemplate')}
+                  </Button>
+                  {isMobile && (
+                    <div className="absolute bottom-full right-0 mb-1 px-2 py-1 rounded bg-bg-tertiary border border-border text-[11px] text-text-secondary whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity">
+                      {t('settings.templateDesktopOnly')}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </DetailSection>
+
+            {showTemplateEditor && (
+              <EmailTemplateWindow onClose={() => setShowTemplateEditor(false)} />
+            )}
+
+            <DetailSection title={t('settings.expiryAlerts')} icon={Bell} iconClass="icon-bg-rose">
+              {!settings.smtp_host ? (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-bg-tertiary text-text-secondary text-sm">
+                  <Warning size={20} className="text-status-warning shrink-0" />
+                  {t('settings.smtpRequiredForAlerts')}
+                </div>
+              ) : (
+              <div className="space-y-4">
+                <ToggleSwitch
+                  checked={expiryAlerts.enabled}
+                  onChange={(val) => setExpiryAlerts(prev => ({ ...prev, enabled: val }))}
+                  label={t('settings.enableExpiryAlerts')}
+                  size="sm"
+                />
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-2">
+                    {t('settings.alertDays')}
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {[90, 60, 30, 14, 7, 3, 1].map(d => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => {
+                          setExpiryAlerts(prev => ({
+                            ...prev,
+                            alert_days: prev.alert_days.includes(d)
+                              ? prev.alert_days.filter(x => x !== d)
+                              : [...prev.alert_days, d].sort((a, b) => b - a)
+                          }))
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                          expiryAlerts.alert_days.includes(d)
+                            ? 'bg-accent-primary text-white'
+                            : 'bg-bg-tertiary text-text-secondary hover:bg-bg-secondary'
+                        }`}
+                      >
+                        {d}d
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-text-tertiary mt-1">{t('settings.alertDaysHelp')}</p>
+                </div>
+                <TagsInput
+                  label={t('settings.alertRecipients')}
+                  value={expiryAlerts.recipients || []}
+                  onChange={(tags) => setExpiryAlerts(prev => ({ ...prev, recipients: tags }))}
+                  placeholder={t('settings.alertRecipientsPlaceholder')}
+                  helperText={t('settings.tagsInputHelp')}
+                  validate={(v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)}
+                />
+                <ToggleSwitch
+                  checked={expiryAlerts.include_revoked}
+                  onChange={(val) => setExpiryAlerts(prev => ({ ...prev, include_revoked: val }))}
+                  label={t('settings.includeRevoked')}
+                  size="sm"
+                />
+                {canWrite('settings') && (
+                  <div className="flex gap-2 pt-2">
+                    <Button type="button" variant="secondary" onClick={triggerExpiryCheck}>
+                      <Bell size={16} />
+                      {t('settings.checkNow')}
+                    </Button>
+                    <Button type="button" onClick={saveExpiryAlerts} disabled={saving}>
+                      <FloppyDisk size={16} />
+                      {t('common.saveChanges')}
+                    </Button>
+                  </div>
+                )}
+              </div>
+              )}
+            </DetailSection>
+          </DetailContent>
+        )
+
+      case 'security':
+        return (
+          <DetailContent>
+            <DetailHeader
+              icon={ShieldCheck}
+              title={t('common.securitySettings')}
+              subtitle={t('settings.securitySubtitle')}
+            />
+            <DetailSection title={t('settings.keyEncryption')} icon={LockKey} iconClass="icon-bg-rose">
+              {encryptionStatus ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Badge variant={encryptionStatus.enabled ? 'success' : 'warning'}>
+                      {encryptionStatus.enabled ? t('common.enabled') : t('common.disabled')}
+                    </Badge>
+                    {encryptionStatus.enabled && encryptionStatus.key_source && (
+                      <span className="text-xs text-text-tertiary">
+                        {t('settings.keySource')}: {encryptionStatus.key_file_path}
+                      </span>
+                    )}
+                  </div>
+                  
+                  {encryptionStatus.total_keys > 0 && (
+                    <div className="flex gap-4 text-sm">
+                      <span className="text-text-secondary">
+                        {t('settings.encryptedKeys')}: <strong className="text-text-primary">{encryptionStatus.encrypted_count}</strong>
+                      </span>
+                      <span className="text-text-secondary">
+                        {t('settings.unencryptedKeys')}: <strong className="text-text-primary">{encryptionStatus.unencrypted_count}</strong>
+                      </span>
+                    </div>
+                  )}
+
+                  <p className="text-xs text-text-secondary">{t('settings.encryptionDesc')}</p>
+
+                  {hasPermission('admin:system') && (
+                    <div>
+                      {!encryptionStatus.enabled ? (
+                        <Button 
+                          onClick={() => setShowEnableEncryptionModal(true)}
+                          variant="primary"
+                        >
+                          <LockKey size={16} />
+                          {t('settings.enableEncryption')}
+                        </Button>
+                      ) : (
+                        <Button 
+                          onClick={() => setShowDisableEncryptionModal(true)}
+                          variant="outline"
+                        >
+                          <Lock size={16} />
+                          {t('settings.disableEncryption')}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <LoadingSpinner size="sm" />
+              )}
+            </DetailSection>
+            <DetailSection title={t('common.twoFactorAuth')} icon={ShieldCheck} iconClass="icon-bg-emerald">
+              <ToggleSwitch
+                checked={settings.enforce_2fa || false}
+                onChange={(val) => updateSetting('enforce_2fa', val)}
+                label={t('settings.enforce2fa')}
+                description={t('settings.enforce2faDesc')}
+              />
+            </DetailSection>
+            <DetailSection title={t('settings.passwordPolicy')} icon={Lock} iconClass="icon-bg-violet">
+              <div className="space-y-4">
+                <Input
+                  label={t('settings.minPasswordLength')}
+                  type="number"
+                  value={settings.min_password_length || 8}
+                  onChange={(e) => updateSetting('min_password_length', parseInt(e.target.value))}
+                  min="6"
+                  max="32"
+                />
+                <div className="space-y-2">
+                  <ToggleSwitch
+                    checked={settings.password_require_uppercase || false}
+                    onChange={(val) => updateSetting('password_require_uppercase', val)}
+                    label={t('settings.requireUppercase')}
+                    size="sm"
+                  />
+                  <ToggleSwitch
+                    checked={settings.password_require_numbers || false}
+                    onChange={(val) => updateSetting('password_require_numbers', val)}
+                    label={t('settings.requireNumbers')}
+                    size="sm"
+                  />
+                  <ToggleSwitch
+                    checked={settings.password_require_special || false}
+                    onChange={(val) => updateSetting('password_require_special', val)}
+                    label={t('settings.requireSpecial')}
+                    size="sm"
+                  />
+                </div>
+              </div>
+            </DetailSection>
+            <DetailSection title={t('settings.anomalyDetection')} icon={Warning} iconClass="icon-bg-orange"
+              badge={anomalies.length > 0 ? anomalies.length : null}
+              badgeColor={anomalies.length > 0 ? 'warning' : undefined}
+            >
+              <div className="space-y-3">
+                {anomaliesLoading ? (
+                  <LoadingSpinner size="sm" />
+                ) : anomalies.length === 0 ? (
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-status-success-op10">
+                    <CheckCircle size={20} weight="fill" className="text-status-success" />
+                    <div>
+                      <div className="text-sm font-medium text-text-primary">{t('settings.noAnomalies')}</div>
+                      <div className="text-xs text-text-secondary">{t('settings.noAnomaliesDesc')}</div>
+                    </div>
+                  </div>
+                ) : (
+                  anomalies.map((anomaly, i) => (
+                    <div key={i} className={`p-3 rounded-lg flex items-start gap-3 ${anomaly.details?.severity === 'high' ? 'bg-status-danger-op10' : 'bg-status-warning-op10'}`}>
+                      <Warning size={18} weight="fill" className={anomaly.details?.severity === 'high' ? 'text-status-danger' : 'text-status-warning'} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-text-primary">{anomaly.details?.type || t('settings.unknownAnomaly')}</div>
+                        <div className="text-xs text-text-secondary">{anomaly.details?.message}</div>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-text-tertiary">
+                          <span className="flex items-center gap-1">
+                            <Clock size={12} />
+                            {new Date(anomaly.timestamp).toLocaleString()}
+                          </span>
+                          {anomaly.details?.ip && (
+                            <span className="flex items-center gap-1">
+                              <Globe size={12} />
+                              {anomaly.details.ip}
+                            </span>
+                          )}
+                          {anomaly.details?.user_id && (
+                            <span className="flex items-center gap-1">
+                              <User size={12} />
+                              #{anomaly.details.user_id}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+                <Button type="button" variant="secondary" size="sm" onClick={loadAnomalies} loading={anomaliesLoading}>
+                  <ArrowsClockwise size={14} />
+                  {t('common.refresh')}
+                </Button>
+              </div>
+            </DetailSection>
+            <DetailSection title={t('settings.sessionRateLimits')} icon={Timer} iconClass="icon-bg-teal">
+              <DetailGrid>
+                <div className="col-span-full md:col-span-1">
+                  <Input
+                    label={t('settings.sessionDuration')}
+                    type="number"
+                    value={settings.session_duration || 24}
+                    onChange={(e) => updateSetting('session_duration', parseInt(e.target.value))}
+                    min="1"
+                    max="720"
+                  />
+                </div>
+                <div className="col-span-full md:col-span-1">
+                  <Input
+                    label={t('settings.apiRateLimit')}
+                    type="number"
+                    value={settings.api_rate_limit || 60}
+                    onChange={(e) => updateSetting('api_rate_limit', parseInt(e.target.value))}
+                    min="10"
+                    max="1000"
+                  />
+                </div>
+              </DetailGrid>
+              {hasPermission('admin:system') && (
+                <div className="pt-4">
+                  <Button type="button" onClick={() => handleSave('security')} disabled={saving}>
+                    <FloppyDisk size={16} />
+                    {t('common.saveChanges')}
+                  </Button>
+                </div>
+              )}
+            </DetailSection>
+            <DetailSection title={t('settings.mtls.title')} icon={ShieldCheck} iconClass="icon-bg-violet" badge={<ExperimentalBadge />}>
+              {mtlsLoading ? (
+                <LoadingSpinner size="sm" />
+              ) : (
+                <div className="space-y-4">
+                  <ToggleSwitch
+                    checked={mtlsSettings.enabled || false}
+                    onChange={(val) => setMtlsSettings(prev => ({ ...prev, enabled: val }))}
+                    label={t('settings.mtls.enable')}
+                    size="sm"
+                  />
+                  {mtlsSettings.enabled && (
+                    <>
+                      <Select
+                        label={t('settings.mtls.trustedCA')}
+                        value={mtlsSettings.trusted_ca_id || ''}
+                        onChange={(val) => setMtlsSettings(prev => ({ ...prev, trusted_ca_id: val }))}
+                        placeholder={t('settings.mtls.selectCA')}
+                        options={cas.filter(ca => ca.has_private_key !== false).map(ca => ({
+                          value: ca.refid,
+                          label: ca.descr || ca.subject || ca.refid,
+                        }))}
+                      />
+                      <ToggleSwitch
+                        checked={mtlsSettings.required || false}
+                        onChange={(val) => setMtlsSettings(prev => ({ ...prev, required: val }))}
+                        label={t('settings.mtls.required')}
+                        size="sm"
+                      />
+                      {mtlsSettings.required && (
+                        <div className="flex items-start gap-2 p-3 rounded-lg bg-status-warning-op10 text-xs text-status-warning">
+                          <WarningCircle size={16} weight="fill" className="flex-shrink-0 mt-0.5" />
+                          <span>{t('settings.mtls.requiredWarning')}</span>
+                        </div>
+                      )}
+                      <p className="text-xs text-text-tertiary">{t('settings.mtls.restartNote')}</p>
+                    </>
+                  )}
+                  {hasPermission('admin:system') && (
+                    <Button type="button" onClick={handleMtlsSave} disabled={mtlsSaving} loading={mtlsSaving}>
+                      <FloppyDisk size={16} />
+                      {t('common.saveChanges')}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </DetailSection>
+          </DetailContent>
+        )
+
+      case 'sso':
+        return (
+          <DetailContent>
+            <DetailHeader
+              icon={Key}
+              title={t('common.sso')}
+              subtitle={t('sso.subtitle')}
+            />
+
+            <HelpCard variant="info" title={t('sso.helpTitle')} className="mb-4">
+              {t('sso.helpDescription')}
+            </HelpCard>
+
+            {ssoLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="w-6 h-6 border-2 border-accent-primary-op30 border-t-accent-primary rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* One card per provider type */}
+                {[
+                  { type: 'ldap', label: t('sso.ldap'), icon: Database, color: 'icon-bg-blue', desc: 'Active Directory, OpenLDAP' },
+                  { type: 'oauth2', label: t('sso.oauth2'), icon: Globe, color: 'icon-bg-teal', desc: 'Azure AD, Google, GitHub, OIDC' },
+                  { type: 'saml', label: t('sso.saml'), icon: Shield, color: 'icon-bg-violet', desc: 'Okta, ADFS, Keycloak' },
+                ].map(({ type, label, icon: Icon, color, desc }) => {
+                  const provider = ssoProviders.find(p => p.provider_type === type)
+                  return (
+                    <div key={type} className="flex items-center justify-between p-4 bg-tertiary-50 border border-border rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${color}`}>
+                          <Icon size={20} weight="bold" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-text-primary">{label}</span>
+                            {provider ? (
+                              <>
+                                <Badge variant={provider.enabled ? 'success' : 'secondary'} size="sm">
+                                  {provider.enabled ? t('common.enabled') : t('common.disabled')}
+                                </Badge>
+                                {provider.is_default && (
+                                  <Badge variant="primary" size="sm">{t('sso.default')}</Badge>
+                                )}
+                              </>
+                            ) : (
+                              <Badge variant="secondary" size="sm">{t('sso.notConfigured')}</Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-text-secondary">
+                            {provider ? (provider.display_name || provider.name) : desc}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {provider ? (
+                          <>
+                            <Button type="button" size="sm" variant="secondary" onClick={() => handleSsoTest(provider)} disabled={ssoTesting} title={t('sso.testConnection')}>
+                              {ssoTesting ? <ArrowsClockwise size={14} className="animate-spin" /> : <TestTube size={14} />}
+                            </Button>
+                            <Button type="button" size="sm" variant="secondary" onClick={() => handleSsoToggle(provider)} title={provider.enabled ? t('sso.disable') : t('sso.enable')}>
+                              <Power size={14} />
+                            </Button>
+                            <Button type="button" size="sm" variant="secondary" onClick={() => handleSsoEdit(provider)} title={t('common.edit')}>
+                              <PencilSimple size={14} />
+                            </Button>
+                            <Button type="button" size="sm" variant="danger" onClick={() => setSsoConfirmDelete(provider)} title={t('common.delete')}>
+                              <Trash size={14} />
+                            </Button>
+                          </>
+                        ) : (
+                          hasPermission('admin:system') && (
+                            <Button type="button" size="sm" onClick={() => handleSsoCreate(type)}>
+                              <Plus size={14} />
+                              {t('sso.configure')}
+                            </Button>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </DetailContent>
+        )
+
+      case 'backup':
+        return (
+          <DetailContent>
+            <DetailHeader
+              icon={Database}
+              title={t('settings.helpBackup')}
+              subtitle={t('settings.backupSubtitle')}
+            />
+            <DetailSection title={t('settings.automaticBackups')} icon={Database} iconClass="icon-bg-emerald">
+              <div className="space-y-4">
+                <ToggleSwitch
+                  checked={settings.auto_backup_enabled || false}
+                  onChange={(val) => updateSetting('auto_backup_enabled', val)}
+                  label={t('settings.enableAutoBackups')}
+                  description={t('settings.autoBackupsDesc')}
+                />
+
+                {settings.auto_backup_enabled && (
+                  <>
+                    <Select
+                      label={t('settings.backupFrequency')}
+                      options={[
+                        { value: 'daily', label: t('settings.daily') },
+                        { value: 'weekly', label: t('settings.weekly') },
+                        { value: 'monthly', label: t('settings.monthly') },
+                      ]}
+                      value={settings.backup_frequency || 'daily'}
+                      onChange={(val) => updateSetting('backup_frequency', val)}
+                    />
+                    <Input
+                      label={t('settings.autoBackupPassword')}
+                      type="password"
+                      noAutofill
+                      value={settings.backup_password || ''}
+                      onChange={(e) => updateSetting('backup_password', e.target.value)}
+                      placeholder={t('settings.min12Characters')}
+                      helperText={t('settings.autoBackupPasswordHelper')}
+                      showStrength
+                    />
+                    <Input
+                      label={t('settings.retentionPeriod')}
+                      type="number"
+                      value={settings.backup_retention_days || 30}
+                      onChange={(e) => updateSetting('backup_retention_days', parseInt(e.target.value))}
+                      min="1"
+                      max="365"
+                    />
+                  </>
+                )}
+
+                {hasPermission('admin:system') && (
+                  <div className="flex gap-2">
+                    <Button type="button" onClick={() => handleSave('backup')} disabled={saving}>
+                      <FloppyDisk size={16} />
+                      {t('settings.saveSettings')}
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={() => setShowBackupModal(true)}>
+                      <Database size={16} />
+                      {t('settings.createBackup')}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </DetailSection>
+
+            <DetailSection title={t('settings.availableBackups')} icon={Download} iconClass="icon-bg-emerald">
+              {backups.length === 0 ? (
+                <div className="p-6 text-center">
+                  <p className="text-sm text-text-secondary">{t('settings.noBackups')}</p>
+                  <p className="text-xs text-text-tertiary mt-1">{t('settings.noBackupsHint')}</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {backups.map((backup) => (
+                    <div key={backup.filename} className="flex items-center justify-between p-3 bg-tertiary-50 border border-white/5 rounded-lg">
+                      <div>
+                        <p className="text-sm font-medium text-text-primary">{backup.filename}</p>
+                        <div className="flex gap-4 mt-1">
+                          <p className="text-xs text-text-secondary">{backup.size}</p>
+                          <p className="text-xs text-text-secondary">{backup.created_at}</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button type="button" size="sm" variant="secondary" onClick={() => handleDownloadBackup(backup.filename)}>
+                          <Download size={14} />
+                        </Button>
+                        <Button type="button" size="sm" variant="danger" onClick={() => handleDeleteBackup(backup.filename)}>
+                          <Trash size={14} />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </DetailSection>
+
+            <DetailSection title={t('settings.restoreFromBackup')} icon={UploadSimple} iconClass="icon-bg-orange">
+              <div>
+                <p className="text-xs text-text-secondary mb-4">{t('settings.restoreFromBackupDesc')}</p>
+                <FileUpload
+                  accept=".ucmbkp,.tar.gz"
+                  onFileSelect={(file) => { setRestoreFile(file); setShowRestoreModal(true) }}
+                  helperText={t('settings.selectBackupFile')}
+                />
+              </div>
+            </DetailSection>
+          </DetailContent>
+        )
+
+      case 'audit':
+        return (
+          <DetailContent>
+            <DetailHeader
+              icon={ListBullets}
+              title={t('settings.auditTitle')}
+              subtitle={t('settings.auditSubtitle')}
+            />
+            <DetailSection title={t('settings.auditLogging')} icon={ListBullets} iconClass="icon-bg-orange">
+              <div className="space-y-4">
+                <ToggleSwitch
+                  checked={settings.audit_enabled || true}
+                  onChange={(val) => updateSetting('audit_enabled', val)}
+                  label={t('settings.enableAuditLogging')}
+                  description={t('settings.enableAuditLoggingDesc')}
+                />
+
+                <Input
+                  label={t('settings.logRetention')}
+                  type="number"
+                  value={settings.audit_retention_days || 90}
+                  onChange={(e) => updateSetting('audit_retention_days', parseInt(e.target.value))}
+                  min="7"
+                  max="730"
+                  disabled={!settings.audit_enabled}
+                />
+              </div>
+            </DetailSection>
+            <DetailSection title={t('settings.eventsToLog')} icon={Eye} iconClass="icon-bg-orange">
+              <div className="space-y-2">
+                {[
+                  { key: 'userLoginLogout', label: t('settings.eventUserLoginLogout') },
+                  { key: 'certIssueRevoke', label: t('settings.eventCertIssueRevoke') },
+                  { key: 'caCreateDelete', label: t('settings.eventCaCreateDelete') },
+                  { key: 'settingsChanges', label: t('settings.eventSettingsChanges') },
+                  { key: 'userManagement', label: t('common.eventUserManagement') },
+                ].map(event => (
+                  <label key={event.key} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={true}
+                      disabled={!settings.audit_enabled}
+                      className="rounded border-border bg-bg-tertiary"
+                    />
+                    <span className="text-sm text-text-primary">{event.label}</span>
+                  </label>
+                ))}
+                {hasPermission('admin:system') && (
+                  <div className="pt-4">
+                    <Button type="button" onClick={() => handleSave('audit')} disabled={saving}>
+                      <FloppyDisk size={16} />
+                      {t('common.saveChanges')}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </DetailSection>
+            <DetailSection title={t('settings.remoteSyslog')} icon={Globe} iconClass="icon-bg-purple">
+              <div className="space-y-4">
+                <p className="text-xs text-text-secondary">{t('settings.remoteSyslogDesc')}</p>
+                <ToggleSwitch
+                  checked={syslogConfig.enabled}
+                  onChange={(val) => updateSyslogConfig('enabled', val)}
+                  label={t('settings.enableSyslog')}
+                />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input
+                    label={t('settings.syslogHost')}
+                    value={syslogConfig.host}
+                    onChange={(e) => updateSyslogConfig('host', e.target.value)}
+                    placeholder="syslog.example.com"
+                  />
+                  <Input
+                    label={t('settings.syslogPort')}
+                    type="number"
+                    value={syslogConfig.port}
+                    onChange={(e) => updateSyslogConfig('port', parseInt(e.target.value) || 514)}
+                    min="1"
+                    max="65535"
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Select
+                    label={t('settings.syslogProtocol')}
+                    value={syslogConfig.protocol}
+                    onChange={(e) => updateSyslogConfig('protocol', e.target.value)}
+                    options={[
+                      { value: 'udp', label: 'UDP' },
+                      { value: 'tcp', label: 'TCP' },
+                    ]}
+                  />
+                  <div>
+                    <p className="text-sm font-medium text-text-primary mb-2">{t('settings.syslogCategories')}</p>
+                    <p className="text-xs text-text-tertiary mb-3">{t('settings.syslogCategoriesHelp')}</p>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {[
+                        { value: 'certificate', label: t('settings.syslogCatCertificates') },
+                        { value: 'ca', label: t('settings.syslogCatCAs') },
+                        { value: 'csr', label: t('settings.syslogCatCSRs') },
+                        { value: 'user', label: t('settings.syslogCatUsers') },
+                        { value: 'acme', label: 'ACME' },
+                        { value: 'scep', label: 'SCEP' },
+                        { value: 'system', label: t('settings.syslogCatSystem') },
+                      ].map(cat => (
+                        <label key={cat.value} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={(syslogConfig.categories || []).includes(cat.value)}
+                            onChange={(e) => {
+                              const cats = syslogConfig.categories || []
+                              updateSyslogConfig('categories', e.target.checked
+                                ? [...cats, cat.value]
+                                : cats.filter(c => c !== cat.value)
+                              )
+                            }}
+                            className="rounded border-border bg-bg-tertiary"
+                          />
+                          <span className="text-sm text-text-primary">{cat.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {syslogConfig.protocol === 'tcp' && (
+                  <ToggleSwitch
+                    checked={syslogConfig.tls}
+                    onChange={(val) => updateSyslogConfig('tls', val)}
+                    label={t('settings.syslogTls')}
+                    size="sm"
+                  />
+                )}
+                {hasPermission('admin:system') && (
+                  <div className="flex gap-2">
+                    <Button type="button" onClick={handleSaveSyslog} loading={syslogSaving}>
+                      <FloppyDisk size={16} />
+                      {t('common.saveChanges')}
+                    </Button>
+                    {syslogConfig.enabled && syslogConfig.host && (
+                      <Button type="button" variant="secondary" onClick={handleTestSyslog} loading={syslogTesting}>
+                        <Lightning size={16} />
+                        {t('settings.syslogTest')}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </DetailSection>
+          </DetailContent>
+        )
+
+      case 'database':
+        return (
+          <DetailContent>
+            <DetailHeader
+              icon={HardDrives}
+              title={t('settings.helpDatabase')}
+              subtitle={t('settings.databaseSubtitle')}
+            />
+            <DetailSection title={t('settings.databaseStatistics')} icon={HardDrives} iconClass="icon-bg-teal">
+              <DetailGrid>
+                <DetailField
+                  label={t('settings.totalCertificates')}
+                  value={dbStats?.certificates || '-'}
+                />
+                <DetailField
+                  label={t('common.cas')}
+                  value={dbStats?.cas || '-'}
+                />
+                <DetailField
+                  label={t('settings.databaseSize')}
+                  value={dbStats?.size || '-'}
+                />
+                <DetailField
+                  label={t('settings.lastOptimized')}
+                  value={dbStats?.last_optimized || '-'}
+                />
+              </DetailGrid>
+            </DetailSection>
+
+            <DetailSection title={t('settings.maintenance')} icon={Gear} iconClass="icon-bg-teal">
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-3">
+                  <Button type="button" size="sm" variant="secondary" onClick={handleOptimizeDb}>
+                    <Database size={16} />
+                    {t('settings.optimizeDatabase')}
+                  </Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={handleIntegrityCheck}>
+                    <ShieldCheck size={16} />
+                    {t('settings.integrityCheck')}
+                  </Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={handleExportDb}>
+                    <Download size={16} />
+                    {t('settings.exportDatabase')}
+                  </Button>
+                </div>
+              </div>
+            </DetailSection>
+
+            <DetailSection title={t('settings.dangerZone')} icon={WarningCircle} iconClass="icon-bg-orange" className="mt-4">
+              <div className="p-4 status-danger-bg status-danger-border border rounded-lg">
+                <h4 className="text-sm font-semibold text-status-danger mb-2">⚠️ {t('settings.databaseReset')}</h4>
+                <p className="text-xs text-text-secondary mb-3">
+                  {t('settings.databaseResetDesc')}
+                </p>
+                <Button type="button" variant="danger" size="sm" onClick={handleResetDb}>
+                  <Trash size={16} />
+                  {t('settings.resetDatabase')}
+                </Button>
+              </div>
+            </DetailSection>
+          </DetailContent>
+        )
+
+      case 'https':
+        return (
+          <DetailContent>
+            <DetailHeader
+              icon={Lock}
+              title={t('settings.httpsTitle')}
+              subtitle={t('settings.httpsSubtitle')}
+              badge={httpsInfo?.type && (
+                <Badge variant={httpsInfo?.type === 'CA-Signed' ? 'success' : httpsInfo?.type === 'Self-Signed' ? 'warning' : 'secondary'}>
+                  {httpsInfo?.type}
+                </Badge>
+              )}
+            />
+            <DetailSection title={t('settings.currentCertificate')} icon={Certificate} iconClass="icon-bg-emerald">
+              <DetailGrid>
+                <DetailField
+                  label={t('common.commonName')}
+                  value={httpsInfo?.common_name || window.location.hostname}
+                />
+                <DetailField
+                  label={t('common.issuer')}
+                  value={httpsInfo?.issuer || '-'}
+                />
+                <DetailField
+                  label={t('common.validFrom')}
+                  value={formatDate(httpsInfo?.valid_from)}
+                />
+                <DetailField
+                  label={t('common.validUntil')}
+                  value={formatDate(httpsInfo?.valid_to)}
+                />
+                <DetailField
+                  label={t('settings.fingerprintSha256')}
+                  value={httpsInfo?.fingerprint || '-'}
+                  mono
+                  copyable
+                  fullWidth
+                />
+              </DetailGrid>
+            </DetailSection>
+
+            <DetailSection title={t('settings.useUCMCert')} icon={Certificate} iconClass="icon-bg-violet">
+              <div className="space-y-4">
+                <p className="text-xs text-text-secondary">
+                  {t('settings.useUcmCertificateDesc')}
+                </p>
+                <Select
+                  label={t('settings.selectCertificate')}
+                  value={selectedHttpsCert}
+                  onChange={setSelectedHttpsCert}
+                  placeholder={t('settings.chooseCertificate')}
+                  options={certificates.map(cert => ({
+                    value: cert.id,
+                    label: `${cert.common_name || t('common.certificate')} (${t('common.expires')} ${formatDate(cert.valid_to)})`
+                  }))}
+                />
+                {certificates.length === 0 && (
+                  <p className="text-xs text-text-secondary">
+                    {t('settings.noValidCertificates')}
+                  </p>
+                )}
+                <Button 
+                  variant="secondary" 
+                  size="sm"
+                  onClick={handleApplyUcmCert}
+                  disabled={!selectedHttpsCert}
+                >
+                  <ShieldCheck size={16} />
+                  {t('settings.applySelectedCertificate')}
+                </Button>
+              </div>
+            </DetailSection>
+
+            <DetailSection title={t('settings.regenerateCert')} icon={ArrowsClockwise} iconClass="icon-bg-emerald">
+              <div className="space-y-3">
+                <p className="text-xs text-text-secondary">
+                  {t('settings.regenerateCertificateDesc')}
+                </p>
+                <Button type="button" variant="secondary" size="sm" onClick={handleRegenerateHttpsCert}>
+                  <Key size={16} />
+                  {t('settings.regenerateSelfSigned')}
+                </Button>
+              </div>
+            </DetailSection>
+
+            <DetailSection title={t('settings.applyCustomCert')} icon={Lock} iconClass="icon-bg-amber">
+              <div className="space-y-3">
+                <p className="text-xs text-text-secondary">
+                  {t('settings.applyCustomCertificateDesc')}
+                </p>
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowHttpsImportModal(true)}
+                >
+                  <UploadSimple size={16} className="mr-2" />
+                  {t('common.importCertificate')}
+                </Button>
+              </div>
+            </DetailSection>
+          </DetailContent>
+        )
+
+      case 'updates':
+        return (
+          <DetailContent>
+            <DetailHeader
+              icon={Rocket}
+              title={t('settings.updatesTitle')}
+              subtitle={t('settings.updatesSubtitle')}
+            />
+            <UpdateChecker />
+          </DetailContent>
+        )
+
+      case 'webhooks':
+        return (
+          <DetailContent>
+            <DetailHeader
+              icon={Bell}
+              title={t('webhooks.title')}
+              subtitle={t('webhooks.subtitle')}
+            />
+
+            <HelpCard variant="info" title={t('webhooks.helpTitle')} className="mb-4">
+              {t('webhooks.helpDescription')}
+            </HelpCard>
+
+            {webhooksLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="w-6 h-6 border-2 border-accent-primary-op30 border-t-accent-primary rounded-full animate-spin" />
+              </div>
+            ) : webhooks.length === 0 ? (
+              <EmptyState
+                icon={Bell}
+                title={t('webhooks.noWebhooks')}
+                description={t('webhooks.noWebhooksDescription')}
+                action={{ label: t('webhooks.addWebhook'), onClick: handleWebhookCreate }}
+              />
+            ) : (
+              <DetailSection title={t('webhooks.configuredWebhooks')} icon={Bell} iconClass="icon-bg-rose">
+                <div className="space-y-3">
+                  {webhooks.map(webhook => (
+                    <div key={webhook.id} className="flex items-center justify-between p-4 bg-tertiary-50 border border-border rounded-lg">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="w-10 h-10 rounded-lg bg-accent-primary-op10 flex items-center justify-center flex-shrink-0">
+                          <Bell size={20} className="text-accent-primary" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-text-primary truncate">{webhook.name}</span>
+                            <Badge variant={webhook.enabled ? 'success' : 'secondary'} size="sm">
+                              {webhook.enabled ? t('common.enabled') : t('common.disabled')}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-text-secondary truncate">{webhook.url}</p>
+                          <div className="flex items-center gap-1 mt-1">
+                            {(webhook.events || []).slice(0, 3).map(ev => (
+                              <Badge key={ev} variant="outline" size="sm">{WEBHOOK_EVENT_LABELS[ev] || ev}</Badge>
+                            ))}
+                            {(webhook.events || []).length > 3 && (
+                              <Badge variant="outline" size="sm">+{webhook.events.length - 3}</Badge>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                        <Button type="button" size="sm" variant="secondary" onClick={() => handleWebhookTest(webhook)} disabled={webhookTesting === webhook.id}>
+                          {webhookTesting === webhook.id ? <ArrowsClockwise size={14} className="animate-spin" /> : <TestTube size={14} />}
+                        </Button>
+                        <Button type="button" size="sm" variant="secondary" onClick={() => handleWebhookToggle(webhook)}>
+                          <Lightning size={14} />
+                        </Button>
+                        <Button type="button" size="sm" variant="secondary" onClick={() => handleWebhookEdit(webhook)}>
+                          <PencilSimple size={14} />
+                        </Button>
+                        <Button type="button" size="sm" variant="danger" onClick={() => setWebhookConfirmDelete(webhook)}>
+                          <Trash size={14} />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {hasPermission('admin:system') && (
+                    <div className="pt-2">
+                      <Button type="button" onClick={handleWebhookCreate}>
+                        <Plus size={16} />
+                        {t('webhooks.addWebhook')}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </DetailSection>
+            )}
+          </DetailContent>
+        )
+
+      case 'about':
+        return <AboutSection />
+
+      default:
+        return null
+    }
+  }
+
+  // Help content for modal
+  const helpContent = (
+    <div className="space-y-4">
+      <HelpCard variant="info" title={t('settings.helpGeneral')}>
+        Configure your UCM instance name, base URL, session timeout, and timezone.
+        These settings affect all users and system behavior.
+      </HelpCard>
+      
+      <HelpCard variant="tip" title={t('settings.helpEmail')}>
+        Configure SMTP settings to enable email notifications for certificate
+        expiration alerts and system events. Test your configuration before saving.
+      </HelpCard>
+
+      <HelpCard variant="warning" title={t('common.securitySettings')}>
+        Security settings like 2FA enforcement and password policies affect all users.
+        Changes take effect immediately - users may need to update their credentials.
+      </HelpCard>
+
+      <HelpCard variant="info" title={t('settings.helpBackup')}>
+        Create encrypted backups of all data including certificates, CAs, users, 
+        and settings. Store backup passwords securely - they cannot be recovered.
+      </HelpCard>
+
+      <HelpCard variant="tip" title={t('settings.helpDatabase')}>
+        Optimize database performance, check integrity, or export data.
+        The danger zone allows complete database reset - use with extreme caution.
+      </HelpCard>
+
+      <HelpCard variant="info" title={t('settings.https')}>
+        Manage the SSL/TLS certificate used by UCM. You can use a certificate
+        from your PKI or generate a self-signed certificate for testing.
+      </HelpCard>
+    </div>
+  )
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <LoadingSpinner message={t('settings.loadingSettings')} />
+      </div>
+    )
+  }
+
+  // Transform categories to tabs format with translations
+  const tabs = SETTINGS_CATEGORIES.map(cat => ({
+    id: cat.id,
+    label: t(cat.labelKey),
+    icon: cat.icon,
+    color: cat.color,
+    badge: undefined  // All features now community
+  }))
+
+  return (
+    <>
+      <ResponsiveLayout
+        title={t('common.settings')}
+        subtitle={t('settings.subtitle')}
+        icon={Gear}
+        tabs={tabs}
+        activeTab={selectedCategory}
+        onTabChange={handleCategoryChange}
+        tabLayout="sidebar"
+        tabGroups={[
+          { labelKey: 'settings.groups.system', tabs: ['general', 'updates', 'database', 'https', 'backup'], color: 'icon-bg-blue' },
+          { labelKey: 'settings.groups.security', tabs: ['security', 'sso'], color: 'icon-bg-amber' },
+          { labelKey: 'settings.groups.notifications', tabs: ['email', 'webhooks'], color: 'icon-bg-teal' },
+          { labelKey: 'settings.groups.interface', tabs: ['appearance', 'audit'], color: 'icon-bg-violet' },
+          { labelKey: 'settings.groups.about', tabs: ['about'], color: 'icon-bg-sky' },
+        ]}
+        helpPageKey="settings"
+      >
+        {renderCategoryContent()}
+      </ResponsiveLayout>
+
+      {/* Backup Password Modal */}
+      <Modal
+        open={showBackupModal}
+        onClose={() => { setShowBackupModal(false); setBackupPassword('') }}
+        title={t('settings.encryptedBackup')}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text-secondary">
+            {t('settings.createBackupDesc')}
+          </p>
+          <Input
+            label={t('settings.encryptionPassword')}
+            type="password"
+            noAutofill
+            value={backupPassword}
+            onChange={(e) => setBackupPassword(e.target.value)}
+            placeholder={t('settings.min12Characters')}
+            helperText={t('settings.encryptionPasswordHelper')}
+            autoFocus
+            showStrength
+          />
+          <div className="flex gap-3 justify-end pt-4">
+            <Button type="button" variant="secondary" onClick={() => { setShowBackupModal(false); setBackupPassword('') }}>
+              {t('common.cancel')}
+            </Button>
+            <Button 
+              onClick={handleBackup} 
+              disabled={backupLoading || !backupPassword || backupPassword.length < 12}
+            >
+              {backupLoading ? t('settings.creating') : t('settings.createAndDownload')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Restore Password Modal */}
+      <Modal
+        open={showRestoreModal}
+        onClose={() => { setShowRestoreModal(false); setRestorePassword(''); setRestoreFile(null) }}
+        title={t('settings.restoreFromBackup')}
+      >
+        <div className="space-y-4">
+          <div className="p-3 status-warning-bg status-warning-border border rounded-lg">
+            <p className="text-sm status-warning-text font-medium">⚠️ {t('common.warning')}</p>
+            <p className="text-xs status-warning-text opacity-80">
+              {t('settings.restoreWarning')}
+            </p>
+          </div>
+          {restoreFile && (
+            <p className="text-sm text-text-primary">
+              {t('settings.file')}: <strong>{restoreFile.name}</strong>
+            </p>
+          )}
+          <Input
+            label={t('settings.backupPassword')}
+            type="password"
+            noAutofill
+            value={restorePassword}
+            onChange={(e) => setRestorePassword(e.target.value)}
+            placeholder={t('settings.enterBackupPassword')}
+            autoFocus
+          />
+          <div className="flex gap-3 justify-end pt-4">
+            <Button type="button" variant="secondary" onClick={() => { setShowRestoreModal(false); setRestorePassword(''); setRestoreFile(null) }}>
+              {t('common.cancel')}
+            </Button>
+            <Button 
+              variant="danger"
+              onClick={handleRestoreBackup} 
+              disabled={backupLoading || !restorePassword || restorePassword.length < 12}
+            >
+              {backupLoading ? t('settings.restoring') : t('settings.restoreBackup')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* SSO Provider Modal */}
+      <Modal
+        open={showSsoModal}
+        onClose={() => { setShowSsoModal(false); setEditingSsoProvider(null); setEditingSsoType(null) }}
+        title={editingSsoProvider ? t('sso.editProvider') : t('sso.newProvider')}
+        size="lg"
+      >
+        <SsoProviderForm
+          provider={editingSsoProvider}
+          forcedType={editingSsoType}
+          onSave={handleSsoSave}
+          onCancel={() => { setShowSsoModal(false); setEditingSsoProvider(null); setEditingSsoType(null) }}
+        />
+      </Modal>
+
+      {/* SSO Delete Confirmation */}
+      <ConfirmModal
+        open={!!ssoConfirmDelete}
+        onClose={() => setSsoConfirmDelete(null)}
+        onConfirm={handleSsoDelete}
+        title={t('common.confirmDelete')}
+        message={t('sso.deleteConfirm', { name: ssoConfirmDelete?.name })}
+        confirmText={t('common.delete')}
+        variant="danger"
+      />
+
+      {/* Webhook Modal */}
+      <Modal
+        open={showWebhookModal}
+        onClose={() => { setShowWebhookModal(false); setEditingWebhook(null) }}
+        title={editingWebhook ? t('webhooks.editWebhook') : t('webhooks.addWebhook')}
+        size="lg"
+      >
+        <WebhookForm
+          webhook={editingWebhook}
+          onSave={handleWebhookSave}
+          onCancel={() => { setShowWebhookModal(false); setEditingWebhook(null) }}
+        />
+      </Modal>
+
+      {/* Webhook Delete Confirmation */}
+      <ConfirmModal
+        open={!!webhookConfirmDelete}
+        onClose={() => setWebhookConfirmDelete(null)}
+        onConfirm={handleWebhookDelete}
+        title={t('common.confirmDelete')}
+        message={t('webhooks.deleteConfirm', { name: webhookConfirmDelete?.name })}
+        confirmText={t('common.delete')}
+        variant="danger"
+      />
+      
+      {/* Enable Encryption Modal */}
+      <Modal
+        open={showEnableEncryptionModal}
+        onClose={() => {
+          setShowEnableEncryptionModal(false)
+          setEncryptionConfirmText('')
+          setEncryptionChecks({ backup: false, keyFile: false, lostKeys: false })
+        }}
+        title={t('settings.enableEncryption')}
+        maxWidth="lg"
+      >
+        <div className="p-4 space-y-4">
+          <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+            <div className="flex items-start gap-2">
+              <WarningCircle size={20} className="text-amber-500 flex-shrink-0 mt-0.5" weight="fill" />
+              <div className="text-sm text-text-primary">
+                <p className="font-semibold mb-1">{t('settings.encryptionWarningTitle')}</p>
+                <p className="text-text-secondary">{t('settings.encryptionWarningDesc')}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={encryptionChecks.keyFile}
+                onChange={(e) => setEncryptionChecks(prev => ({ ...prev, keyFile: e.target.checked }))}
+                className="rounded border-border bg-bg-tertiary mt-0.5"
+              />
+              <span className="text-sm text-text-primary">{t('settings.encryptionCheckKeyFile')}</span>
+            </label>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={encryptionChecks.backup}
+                onChange={(e) => setEncryptionChecks(prev => ({ ...prev, backup: e.target.checked }))}
+                className="rounded border-border bg-bg-tertiary mt-0.5"
+              />
+              <span className="text-sm text-text-primary">{t('settings.encryptionCheckBackup')}</span>
+            </label>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={encryptionChecks.lostKeys}
+                onChange={(e) => setEncryptionChecks(prev => ({ ...prev, lostKeys: e.target.checked }))}
+                className="rounded border-border bg-bg-tertiary mt-0.5"
+              />
+              <span className="text-sm text-text-primary">{t('settings.encryptionCheckLostKeys')}</span>
+            </label>
+          </div>
+
+          <div>
+            <label className="block text-sm text-text-secondary mb-1">
+              {t('settings.typeToConfirm', { word: 'ENCRYPT' })}
+            </label>
+            <Input
+              value={encryptionConfirmText}
+              onChange={(e) => setEncryptionConfirmText(e.target.value)}
+              placeholder="ENCRYPT"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-4 border-t border-border">
+            <Button type="button" variant="outline" onClick={() => {
+              setShowEnableEncryptionModal(false)
+              setEncryptionConfirmText('')
+              setEncryptionChecks({ backup: false, keyFile: false, lostKeys: false })
+            }}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleEnableEncryption}
+              disabled={
+                encryptionLoading ||
+                encryptionConfirmText !== 'ENCRYPT' ||
+                !encryptionChecks.backup ||
+                !encryptionChecks.keyFile ||
+                !encryptionChecks.lostKeys
+              }
+            >
+              {encryptionLoading ? <LoadingSpinner size="sm" /> : <LockKey size={16} />}
+              {t('settings.enableEncryption')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Disable Encryption Modal */}
+      <ConfirmModal
+        open={showDisableEncryptionModal}
+        onClose={() => setShowDisableEncryptionModal(false)}
+        onConfirm={handleDisableEncryption}
+        title={t('settings.disableEncryption')}
+        message={t('settings.disableEncryptionConfirm')}
+        confirmText={t('settings.disableEncryption')}
+        variant="danger"
+        loading={encryptionLoading}
+      />
+
+      {/* Smart Import Modal for HTTPS certificate */}
+      <SmartImportModal
+        isOpen={showHttpsImportModal}
+        onClose={() => setShowHttpsImportModal(false)}
+        onImportComplete={async (imported) => {
+          setShowHttpsImportModal(false)
+          // If a certificate was imported with private key, offer to apply it
+          if (imported?.id && imported?.has_private_key) {
+            const apply = await showConfirm(t('settings.applyImportedCertConfirm'), {
+              title: t('settings.applyCertificate'),
+              confirmText: t('settings.applyAndRestart')
+            })
+            if (apply) {
+              try {
+                const response = await systemService.applyHttpsCert({ cert_id: imported.id })
+                if (response.data?.requires_container_restart) {
+                  showSuccess(t('settings.dockerCertNotice'))
+                } else {
+                  showSuccess(t('messages.success.https.applied'))
+                  setTimeout(() => window.location.reload(), 3000)
+                }
+              } catch (error) {
+                showError(error.message || t('messages.errors.https.applyFailed'))
+              }
+            }
+          } else {
+            // Refresh cert list
+            loadCertificates()
+            showSuccess(t('common.importSuccess'))
+          }
+        }}
+        defaultType="certificate"
+      />
+    </>
+  )
+}

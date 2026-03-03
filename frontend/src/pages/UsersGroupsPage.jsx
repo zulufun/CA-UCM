@@ -1,0 +1,1354 @@
+/**
+ * UsersGroupsPage - User and Group management
+ * Pattern: ResponsiveLayout + ResponsiveDataTable + Modal actions
+ * 
+ * DESKTOP: Dense table with hover rows, inline slide-over details
+ * MOBILE: Card-style list with full-screen details
+ */
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { 
+  User, Users, UsersThree, Plus, Trash, PencilSimple, Key, 
+  CheckCircle, XCircle, Crown, Clock, ShieldCheck, UserCircle, Certificate, Download
+} from '@phosphor-icons/react'
+import {
+  ResponsiveLayout, ResponsiveDataTable, Badge, Button, Modal, Input, Select,
+  LoadingSpinner, MemberTransferModal,
+  CompactSection, CompactGrid, CompactField, CompactHeader
+} from '../components'
+import { usersService, groupsService, rolesService, casService, accountService } from '../services'
+import { apiClient } from '../services/apiClient'
+import { useNotification, useMobile } from '../contexts'
+import { usePermission } from '../hooks'
+import { formatDate, cn } from '../lib/utils'
+export default function UsersGroupsPage() {
+  const { t } = useTranslation()
+  const { isMobile } = useMobile()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { showSuccess, showError, showConfirm } = useNotification()
+  const { canWrite, canDelete } = usePermission()
+  
+  // Tab state
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'users')
+  
+  // Data
+  const [users, setUsers] = useState([])
+  const [groups, setGroups] = useState([])
+  const [roles, setRoles] = useState([])
+  const [loading, setLoading] = useState(true)
+  
+  // Selection
+  const [selectedUser, setSelectedUser] = useState(null)
+  const [selectedGroup, setSelectedGroup] = useState(null)
+  
+  // Modals
+  const [showUserModal, setShowUserModal] = useState(false)
+  const [showGroupModal, setShowGroupModal] = useState(false)
+  const [showMemberModal, setShowMemberModal] = useState(false)
+  const [editingUser, setEditingUser] = useState(null)
+  const [editingGroup, setEditingGroup] = useState(null)
+  const [savingMembers, setSavingMembers] = useState(false)
+
+  // mTLS state (admin user cert management)
+  const [userMtlsCerts, setUserMtlsCerts] = useState([])
+  const [showMtlsModal, setShowMtlsModal] = useState(false)
+  const [mtlsTab, setMtlsTab] = useState('generate')
+  const [mtlsCreating, setMtlsCreating] = useState(false)
+  const [mtlsResult, setMtlsResult] = useState(null)
+  const [mtlsForm, setMtlsForm] = useState({ name: '', validity_days: 365, ca_id: '' })
+  const [mtlsImportForm, setMtlsImportForm] = useState({ name: '', pem: '' })
+  const [cas, setCas] = useState([])
+  const [availableCerts, setAvailableCerts] = useState([])
+  const [availableCertsLoading, setAvailableCertsLoading] = useState(false)
+  const [selectedAssignCert, setSelectedAssignCert] = useState(null)
+  
+  // Pagination
+  const [page, setPage] = useState(1)
+  const [perPage, setPerPage] = useState(25)
+  
+  // Filters
+  const [filterRole, setFilterRole] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
+
+  // Tab change
+  const handleTabChange = (tab) => {
+    setActiveTab(tab)
+    setSearchParams({ tab })
+    setSelectedUser(null)
+    setSelectedGroup(null)
+    setPage(1)
+  }
+
+  // Load data
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      const [usersRes, groupsRes, rolesRes] = await Promise.all([
+        usersService.getAll(),
+        groupsService.getAll(),
+        rolesService.getAll().catch(() => ({ data: [] }))
+      ])
+      setUsers(usersRes.data || [])
+      setGroups(groupsRes.data || [])
+      setRoles(rolesRes.data || [])
+    } catch (error) {
+      showError(t('messages.errors.loadFailed.generic'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ============= USER ACTIONS =============
+  
+  const handleCreateUser = async (data) => {
+    try {
+      await usersService.create(data)
+      showSuccess(t('messages.success.create.user'))
+      setShowUserModal(false)
+      setEditingUser(null)
+      loadData()
+    } catch (error) {
+      showError(error.message || t('messages.errors.createFailed.user'))
+    }
+  }
+
+  const handleUpdateUser = async (data) => {
+    try {
+      await usersService.update(editingUser.id, data)
+      showSuccess(t('messages.success.update.user'))
+      setShowUserModal(false)
+      setEditingUser(null)
+      loadData()
+      if (selectedUser?.id === editingUser.id) {
+        setSelectedUser({ ...selectedUser, ...data })
+      }
+    } catch (error) {
+      showError(error.message || t('messages.errors.updateFailed.user'))
+    }
+  }
+
+  const handleDeleteUser = async (user) => {
+    const confirmed = await showConfirm(t('users.confirmDelete', { name: user.username }), {
+      title: t('users.deleteUser'),
+      confirmText: t('common.delete'),
+      variant: 'danger'
+    })
+    if (!confirmed) return
+    try {
+      await usersService.delete(user.id)
+      showSuccess(t('messages.success.delete.user'))
+      if (selectedUser?.id === user.id) setSelectedUser(null)
+      loadData()
+    } catch (error) {
+      showError(error.message || t('messages.errors.deleteFailed.user'))
+    }
+  }
+
+  const handleToggleUser = async (user) => {
+    try {
+      await usersService.update(user.id, { active: !user.active })
+      showSuccess(t('users.userToggled', { action: user.active ? t('common.disabled') : t('common.enabled') }))
+      loadData()
+      if (selectedUser?.id === user.id) {
+        setSelectedUser({ ...selectedUser, active: !user.active })
+      }
+    } catch (error) {
+      showError(error.message || t('messages.errors.updateFailed.user'))
+    }
+  }
+
+  const handleResetPassword = async (user) => {
+    const confirmed = await showConfirm(t('users.confirmResetPassword', { name: user.username }), {
+      title: t('users.resetPassword'),
+      confirmText: t('common.reset')
+    })
+    if (!confirmed) return
+    try {
+      const res = await usersService.resetPassword(user.id)
+      showSuccess(t('users.newPassword', { password: res.password || t('users.checkEmail') }))
+    } catch (error) {
+      showError(error.message || t('users.resetPasswordFailed'))
+    }
+  }
+
+  // ============= GROUP ACTIONS =============
+  
+  const handleCreateGroup = async (data) => {
+    try {
+      await groupsService.create(data)
+      showSuccess(t('messages.success.create.group'))
+      setShowGroupModal(false)
+      setEditingGroup(null)
+      loadData()
+    } catch (error) {
+      showError(error.message || t('messages.errors.createFailed.group'))
+    }
+  }
+
+  const handleUpdateGroup = async (data) => {
+    try {
+      await groupsService.update(editingGroup.id, data)
+      showSuccess(t('messages.success.update.group'))
+      setShowGroupModal(false)
+      setEditingGroup(null)
+      loadData()
+    } catch (error) {
+      showError(error.message || t('messages.errors.updateFailed.group'))
+    }
+  }
+
+  const handleDeleteGroup = async (group) => {
+    const confirmed = await showConfirm(t('groups.confirmDelete', { name: group.name }), {
+      title: t('groups.deleteGroup'),
+      confirmText: t('common.delete'),
+      variant: 'danger'
+    })
+    if (!confirmed) return
+    try {
+      await groupsService.delete(group.id)
+      showSuccess(t('messages.success.delete.group'))
+      if (selectedGroup?.id === group.id) setSelectedGroup(null)
+      loadData()
+    } catch (error) {
+      showError(error.message || t('messages.errors.deleteFailed.group'))
+    }
+  }
+
+  // Save members from the transfer modal
+  const handleSaveMembers = async (newMemberIds) => {
+    if (!selectedGroup) return
+    
+    setSavingMembers(true)
+    try {
+      const currentIds = new Set((selectedGroup.members || []).map(m => m.id || m.user_id))
+      const newIds = new Set(newMemberIds)
+      
+      // Find members to add
+      const toAdd = newMemberIds.filter(id => !currentIds.has(id))
+      // Find members to remove
+      const toRemove = [...currentIds].filter(id => !newIds.has(id))
+      
+      // Execute all changes
+      await Promise.all([
+        ...toAdd.map(userId => groupsService.addMember(selectedGroup.id, userId)),
+        ...toRemove.map(userId => groupsService.removeMember(selectedGroup.id, userId))
+      ])
+      
+      showSuccess(`Members updated: ${toAdd.length} added, ${toRemove.length} removed`)
+      setShowMemberModal(false)
+      loadData()
+      
+      // Refresh selected group
+      const updated = await groupsService.getById(selectedGroup.id)
+      setSelectedGroup(updated.data)
+    } catch (error) {
+      showError(error.message || t('messages.errors.updateFailed.group'))
+    } finally {
+      setSavingMembers(false)
+    }
+  }
+
+  // ============= USER mTLS HANDLERS =============
+
+  const loadUserMtlsCerts = useCallback(async (userId) => {
+    try {
+      const response = await apiClient.get(`/users/${userId}/mtls/certificates`)
+      setUserMtlsCerts(response.data || [])
+    } catch {
+      setUserMtlsCerts([])
+    }
+  }, [])
+
+  const loadCAsOnce = useCallback(async () => {
+    if (cas.length > 0) return
+    try {
+      const response = await casService.getAll()
+      setCas(response.data?.items || response.data || [])
+    } catch {}
+  }, [cas.length])
+
+  // Load mTLS certs when user selected
+  useEffect(() => {
+    if (selectedUser?.id && canWrite('users')) {
+      loadUserMtlsCerts(selectedUser.id)
+      loadCAsOnce()
+    } else {
+      setUserMtlsCerts([])
+    }
+  }, [selectedUser?.id, canWrite, loadUserMtlsCerts, loadCAsOnce])
+
+  const handleOpenMtlsModal = () => {
+    setMtlsTab('generate')
+    setMtlsResult(null)
+    setMtlsForm({ name: `${selectedUser?.username || 'user'}@mtls`, validity_days: 365, ca_id: '' })
+    setMtlsImportForm({ name: '', pem: '' })
+    setShowMtlsModal(true)
+  }
+
+  const handleCloseMtlsModal = () => {
+    setShowMtlsModal(false)
+    setMtlsResult(null)
+    setSelectedAssignCert(null)
+    setAvailableCerts([])
+  }
+
+  const handleGenerateUserMtls = async () => {
+    if (!selectedUser) return
+    setMtlsCreating(true)
+    try {
+      const response = await apiClient.post(`/users/${selectedUser.id}/mtls/certificates`, {
+        mode: 'generate',
+        name: mtlsForm.name || undefined,
+        ca_id: mtlsForm.ca_id || undefined,
+        validity_days: mtlsForm.validity_days,
+      })
+      setMtlsResult(response.data || {})
+      showSuccess(t('users.mtls.generated'))
+      loadUserMtlsCerts(selectedUser.id)
+    } catch (error) {
+      showError(error.message || t('users.mtls.generateFailed'))
+    } finally {
+      setMtlsCreating(false)
+    }
+  }
+
+  const handleImportUserMtls = async () => {
+    if (!selectedUser || !mtlsImportForm.pem.trim()) return
+    setMtlsCreating(true)
+    try {
+      await apiClient.post(`/users/${selectedUser.id}/mtls/certificates`, {
+        mode: 'import',
+        pem: mtlsImportForm.pem,
+        name: mtlsImportForm.name,
+      })
+      showSuccess(t('users.mtls.imported'))
+      loadUserMtlsCerts(selectedUser.id)
+      handleCloseMtlsModal()
+    } catch (error) {
+      showError(error.message || t('users.mtls.importFailed'))
+    } finally {
+      setMtlsCreating(false)
+    }
+  }
+
+  const handleDeleteUserMtls = async (certId) => {
+    if (!selectedUser) return
+    const confirmed = await showConfirm(t('users.mtls.deleteConfirm'), {
+      title: t('common.deleteCertificate'),
+      confirmText: t('common.delete'),
+      variant: 'danger'
+    })
+    if (!confirmed) return
+    try {
+      await apiClient.delete(`/users/${selectedUser.id}/mtls/certificates/${certId}`)
+      showSuccess(t('users.mtls.deleted'))
+      loadUserMtlsCerts(selectedUser.id)
+    } catch (error) {
+      showError(error.message || t('users.mtls.deleteFailed'))
+    }
+  }
+
+  const handleMtlsPemFileUpload = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      setMtlsImportForm(prev => ({ ...prev, pem: evt.target.result }))
+    }
+    reader.readAsText(file)
+  }
+
+  const loadAvailableCerts = async () => {
+    setAvailableCertsLoading(true)
+    try {
+      const response = await accountService.getAvailableMTLSCertificates()
+      setAvailableCerts(response.data || [])
+    } catch (error) {
+      showError(error.message || t('users.mtls.loadAvailableFailed'))
+    } finally {
+      setAvailableCertsLoading(false)
+    }
+  }
+
+  const handleAssignUserMtls = async () => {
+    if (!selectedUser || !selectedAssignCert) return
+    setMtlsCreating(true)
+    try {
+      await apiClient.post('/mtls/assign', {
+        cert_id: selectedAssignCert.id,
+        user_id: selectedUser.id,
+        name: selectedAssignCert.name,
+      })
+      showSuccess(t('users.mtls.assigned'))
+      loadUserMtlsCerts(selectedUser.id)
+      handleCloseMtlsModal()
+    } catch (error) {
+      showError(error.message || t('users.mtls.assignFailed'))
+    } finally {
+      setMtlsCreating(false)
+    }
+  }
+
+  // ============= FILTERED DATA =============
+  
+  const filteredUsers = useMemo(() => {
+    let result = [...users]
+    if (filterRole) result = result.filter(u => u.role === filterRole)
+    if (filterStatus === 'active') result = result.filter(u => u.active)
+    if (filterStatus === 'disabled') result = result.filter(u => !u.active)
+    return result
+  }, [users, filterRole, filterStatus])
+
+  const filteredGroups = useMemo(() => groups, [groups])
+
+  // ============= STATS =============
+  
+  const stats = useMemo(() => {
+    if (activeTab === 'users') {
+      const active = users.filter(u => u.active).length
+      const disabled = users.filter(u => !u.active).length
+      const admins = users.filter(u => u.role === 'admin').length
+      return [
+        { icon: CheckCircle, label: t('common.active'), value: active, variant: 'success' },
+        { icon: XCircle, label: t('common.disabled'), value: disabled, variant: 'secondary' },
+        { icon: Crown, label: t('users.admin'), value: admins, variant: 'primary' },
+        { icon: User, label: t('common.total'), value: users.length, variant: 'default' }
+      ]
+    } else {
+      return [
+        { icon: Users, label: t('common.groups'), value: groups.length, variant: 'primary' },
+        { icon: User, label: t('common.users'), value: users.length, variant: 'secondary' }
+      ]
+    }
+  }, [activeTab, users, groups, t])
+
+  // ============= COLUMNS =============
+  
+  const userColumns = useMemo(() => [
+    {
+      key: 'username',
+      header: t('common.user'),
+      priority: 1,
+      sortable: true,
+      render: (val, row) => {
+        // Color avatar based on role AND status - theme-aware
+        const avatarColors = {
+          admin: 'icon-bg-violet',
+          operator: 'icon-bg-blue',
+          auditor: 'icon-bg-orange',
+          viewer: 'icon-bg-teal'
+        }
+        // Override with orange for disabled users
+        const colorClass = row.active 
+          ? (avatarColors[row.role] || avatarColors.viewer)
+          : 'icon-bg-orange'
+        return (
+          <div className="flex items-center gap-2">
+            <div className={cn(
+              "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+              colorClass
+            )}>
+              {val?.charAt(0)?.toUpperCase() || '?'}
+            </div>
+            <div className="min-w-0">
+              <div className="font-medium text-text-primary truncate">{val || '—'}</div>
+              <div className="text-xs text-text-secondary truncate">{row.email || '—'}</div>
+            </div>
+          </div>
+        )
+      },
+      // Mobile: Avatar + Username left, Status badge right
+      mobileRender: (val, row) => {
+        const avatarColors = {
+          admin: 'icon-bg-violet',
+          operator: 'icon-bg-blue',
+          auditor: 'icon-bg-orange',
+          viewer: 'icon-bg-teal'
+        }
+        const colorClass = row.active 
+          ? (avatarColors[row.role] || avatarColors.viewer)
+          : 'icon-bg-orange'
+        return (
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <div className={cn(
+                "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                colorClass
+              )}>
+                {val?.charAt(0)?.toUpperCase() || '?'}
+              </div>
+              <span className="font-medium truncate">{val || '—'}</span>
+            </div>
+            <Badge variant={row.active ? 'success' : 'orange'} size="sm" dot>
+              {row.active ? t('common.active') : t('common.disabled')}
+            </Badge>
+          </div>
+        )
+      }
+    },
+    {
+      key: 'role',
+      header: t('common.role'),
+      priority: 2,
+      sortable: true,
+      render: (val, row) => {
+        // Colorful role badges for ALL roles
+        const roleConfig = {
+          admin: { variant: 'violet', dot: true },
+          operator: { variant: 'primary', dot: false },
+          auditor: { variant: 'orange', dot: false },
+          viewer: { variant: 'teal', dot: false }
+        }
+        const config = roleConfig[val] || roleConfig.viewer
+        const roleLabels = {
+          admin: t('users.admin'),
+          operator: t('common.operator'),
+          auditor: t('common.auditor'),
+          viewer: t('common.viewer')
+        }
+        return (
+          <Badge variant={config.variant} size="sm" dot={config.dot}>
+            {val === 'admin' && <Crown weight="fill" className="h-3 w-3 mr-1" />}
+            {roleLabels[val] || t('common.viewer')}
+          </Badge>
+        )
+      },
+      // Mobile: show email + role badge (status already shown in username row)
+      mobileRender: (val, row) => {
+        const roleConfig = {
+          admin: { variant: 'violet', dot: true },
+          operator: { variant: 'primary', dot: false },
+          auditor: { variant: 'orange', dot: false },
+          viewer: { variant: 'teal', dot: false }
+        }
+        const config = roleConfig[val] || roleConfig.viewer
+        const roleLabels = {
+          admin: t('users.admin'),
+          operator: t('common.operator'),
+          auditor: t('common.auditor'),
+          viewer: t('common.viewer')
+        }
+        return (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-text-secondary truncate">{row.email || '—'}</span>
+            <Badge variant={config.variant} size="xs" dot={config.dot}>
+              {val === 'admin' && <Crown weight="fill" className="h-2.5 w-2.5 mr-0.5" />}
+              {roleLabels[val] || t('common.viewer')}
+            </Badge>
+          </div>
+        )
+      }
+    },
+    {
+      key: 'active',
+      header: t('common.status'),
+      priority: 3,
+      hideOnMobile: true,
+      sortable: true,
+      render: (val) => (
+        <Badge 
+          variant={val ? 'success' : 'orange'} 
+          size="sm" 
+          icon={val ? CheckCircle : XCircle} 
+          dot 
+          pulse={val}
+        >
+          {val ? t('common.active') : t('common.disabled')}
+        </Badge>
+      )
+    },
+    {
+      key: 'last_login',
+      header: t('common.lastLogin'),
+      hideOnMobile: true,
+      sortable: true,
+      render: (val) => (
+        <span className="text-xs text-text-secondary whitespace-nowrap">
+          {val ? formatDate(val) : t('common.never')}
+        </span>
+      )
+    }
+  ], [t])
+
+  const groupColumns = useMemo(() => [
+    {
+      key: 'name',
+      header: t('groups.group'),
+      priority: 1,
+      sortable: true,
+      render: (val, row) => {
+        const memberCount = row.members?.length || row.member_count || 0
+        return (
+          <div className="flex items-center gap-2">
+            <div className={cn(
+              "w-6 h-6 rounded-lg flex items-center justify-center shrink-0",
+              memberCount > 0 ? "icon-bg-blue" : "icon-bg-teal"
+            )}>
+              <UsersThree size={14} weight="duotone" />
+            </div>
+            <span className="font-medium">{val}</span>
+          </div>
+        )
+      }
+    },
+    {
+      key: 'description',
+      header: t('common.description'),
+      priority: 2,
+      hideOnMobile: true,
+      render: (val) => (
+        <span className="text-text-secondary truncate">{val || '—'}</span>
+      )
+    },
+    {
+      key: 'member_count',
+      header: t('groups.members'),
+      priority: 3,
+      sortable: true,
+      render: (val, row) => {
+        const count = row.members?.length || val || 0
+        return (
+          <Badge variant={count > 0 ? 'primary' : 'secondary'} size="sm" dot>
+            {t('groups.memberCount', { count })}
+          </Badge>
+        )
+      }
+    }
+  ], [t])
+
+  // ============= ROW ACTIONS =============
+  
+  const userRowActions = useCallback((row) => [
+    { label: t('common.edit'), icon: PencilSimple, onClick: () => { setEditingUser(row); setShowUserModal(true) } },
+    { label: row.active ? t('common.deactivate') : t('users.activate'), icon: row.active ? XCircle : CheckCircle, onClick: () => handleToggleUser(row) },
+    { label: t('users.resetPassword'), icon: Key, onClick: () => handleResetPassword(row) },
+    ...(canDelete('users') ? [
+      { label: t('common.delete'), icon: Trash, variant: 'danger', onClick: () => handleDeleteUser(row) }
+    ] : [])
+  ], [canDelete, t])
+
+  const groupRowActions = useCallback((row) => [
+    { label: t('common.edit'), icon: PencilSimple, onClick: () => { setEditingGroup(row); setShowGroupModal(true) } },
+    ...(canDelete('users') ? [
+      { label: t('common.delete'), icon: Trash, variant: 'danger', onClick: () => handleDeleteGroup(row) }
+    ] : [])
+  ], [canDelete, t])
+
+  // Help is now provided via FloatingHelpPanel (helpPageKey="usersGroups")
+
+  // ============= DETAIL PANEL =============
+  
+  const userDetailContent = selectedUser && (
+    <div className="p-3 space-y-4">
+      <CompactHeader
+        icon={UserCircle}
+        iconClass={selectedUser.active ? "bg-accent-primary-op20" : "bg-text-muted-op20"}
+        title={selectedUser.username}
+        subtitle={selectedUser.email}
+        badge={
+          <Badge variant={selectedUser.active ? 'success' : 'secondary'} size="sm" icon={selectedUser.active ? CheckCircle : XCircle}>
+            {selectedUser.active ? t('common.active') : t('common.disabled')}
+          </Badge>
+        }
+      />
+
+      {/* Actions */}
+      <div className="flex flex-wrap gap-2">
+        {canWrite('users') && (
+          <>
+            <Button type="button" size="sm" variant="secondary" onClick={() => { setEditingUser(selectedUser); setShowUserModal(true) }}>
+              <PencilSimple size={14} /> {t('common.edit')}
+            </Button>
+            <Button type="button" size="sm" variant="secondary" onClick={() => handleToggleUser(selectedUser)}>
+              {selectedUser.active ? <XCircle size={14} /> : <CheckCircle size={14} />}
+              {selectedUser.active ? t('common.deactivate') : t('users.activate')}
+            </Button>
+            <Button type="button" size="sm" variant="secondary" onClick={() => handleResetPassword(selectedUser)}>
+              <Key size={14} /> {t('users.resetPassword')}
+            </Button>
+          </>
+        )}
+        {canDelete('users') && (
+          <Button type="button" size="sm" variant="danger-soft" onClick={() => handleDeleteUser(selectedUser)}>
+            <Trash size={14} /> {t('common.delete')}
+          </Button>
+        )}
+      </div>
+
+      <CompactSection title={t('common.user') + ' ' + t('common.info')} icon={UserCircle} iconClass="icon-bg-blue">
+        <CompactGrid columns={1}>
+          <CompactField autoIcon="name" label={t('common.name')} value={selectedUser.full_name || '—'} />
+          <CompactField autoIcon="email" label={t('common.email')} value={selectedUser.email} />
+          <CompactField autoIcon="role" label={t('common.role')} value={selectedUser.role} />
+          {selectedUser.custom_role_name && (
+            <CompactField autoIcon="customRole" label={t('rbac.customRole')} value={selectedUser.custom_role_name} />
+          )}
+        </CompactGrid>
+      </CompactSection>
+
+      <CompactSection title={t('common.lastLogin')} icon={Clock} iconClass="icon-bg-green">
+        <CompactGrid columns={1}>
+          <CompactField autoIcon="created" label={t('common.created')} value={formatDate(selectedUser.created_at)} />
+          <CompactField autoIcon="lastLogin" label={t('common.lastLogin')} value={selectedUser.last_login ? formatDate(selectedUser.last_login) : t('common.never')} />
+        </CompactGrid>
+      </CompactSection>
+
+      <CompactSection title={t('common.security')} icon={ShieldCheck} iconClass="icon-bg-purple">
+        <CompactGrid columns={1}>
+          <CompactField autoIcon="enable2FA" label={t('common.enable2FA')} value={selectedUser.mfa_enabled ? t('common.yes') : t('common.no')} />
+          <CompactField autoIcon="totp" label={t('common.totp', 'TOTP')} value={selectedUser.totp_confirmed ? t('common.yes') : t('common.no')} />
+        </CompactGrid>
+      </CompactSection>
+
+      {/* mTLS Certificates (admin only) */}
+      {canWrite('users') && (
+        <CompactSection title={t('users.mtls.title')} icon={Certificate} iconClass="icon-bg-orange">
+          <div className="p-2">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-text-secondary">{t('users.mtls.description')}</p>
+              <Button type="button" size="xs" onClick={handleOpenMtlsModal}>
+                <Plus size={12} className="mr-1" />
+                {t('common.add')}
+              </Button>
+            </div>
+            {userMtlsCerts.length === 0 ? (
+              <p className="text-xs text-text-tertiary py-2 text-center">{t('users.mtls.noCerts')}</p>
+            ) : (
+              <div className="space-y-1.5">
+                {userMtlsCerts.map(cert => (
+                  <div key={cert.id} className="flex items-center justify-between p-2 bg-tertiary-50 border border-border rounded-lg">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-text-primary truncate">{cert.name || cert.cert_subject}</p>
+                      <p className="text-[10px] text-text-tertiary">
+                        {t('common.expires')} {formatDate(cert.valid_until)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                      <Badge variant={cert.enabled ? 'success' : 'warning'} size="xs">
+                        {cert.enabled ? t('common.active') : t('common.disabled')}
+                      </Badge>
+                      <Button type="button" size="xs" variant="ghost" onClick={() => handleDeleteUserMtls(cert.id)}>
+                        <Trash size={14} className="text-status-danger" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </CompactSection>
+      )}
+    </div>
+  )
+
+  const groupDetailContent = selectedGroup && (
+    <div className="p-3 space-y-4">
+      <CompactHeader
+        icon={Users}
+        iconClass="bg-accent-primary-op20"
+        title={selectedGroup.name}
+        subtitle={t('groups.memberCount', { count: selectedGroup.members?.length || 0 })}
+      />
+
+      {/* Actions */}
+      <div className="flex flex-wrap gap-2">
+        {canWrite('users') && (
+          <Button type="button" size="sm" variant="secondary" onClick={() => { setEditingGroup(selectedGroup); setShowGroupModal(true) }}>
+            <PencilSimple size={14} /> {t('common.edit')}
+          </Button>
+        )}
+        {canDelete('users') && (
+          <Button type="button" size="sm" variant="danger-soft" onClick={() => handleDeleteGroup(selectedGroup)}>
+            <Trash size={14} /> {t('common.delete')}
+          </Button>
+        )}
+      </div>
+
+      <CompactSection title={t('groups.group') + ' ' + t('common.info')} icon={Users} iconClass="icon-bg-orange">
+        <CompactGrid columns={1}>
+          <CompactField autoIcon="name" label={t('common.name')} value={selectedGroup.name} />
+          <CompactField autoIcon="description" label={t('common.description')} value={selectedGroup.description || '—'} />
+          <CompactField autoIcon="created" label={t('common.created')} value={formatDate(selectedGroup.created_at)} />
+        </CompactGrid>
+      </CompactSection>
+
+      <CompactSection title={t('groups.members')} icon={Users} iconClass="icon-bg-blue">
+        <div className="space-y-3">
+          {/* Manage Members Button */}
+          {canWrite('users') && (
+            <div className="flex justify-end">
+              <Button type="button" size="sm" onClick={() => setShowMemberModal(true)}>
+                <Users size={14} /> {t('groups.members')}
+              </Button>
+            </div>
+          )}
+
+          {/* Members Preview */}
+          {(selectedGroup.members?.length || 0) === 0 ? (
+            <p className="text-sm text-text-tertiary text-center py-4">
+              {t('groups.noMembers')}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {selectedGroup.members.slice(0, 5).map(member => (
+                <div
+                  key={member.id || member.user_id || member.username}
+                  className="flex items-center gap-3 px-3 py-2 bg-tertiary-op50 border border-border rounded-lg"
+                >
+                  <div className="w-6 h-6 rounded-full bg-accent-primary-op20 flex items-center justify-center">
+                    <User size={14} className="text-accent-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-text-primary truncate">
+                      {member.username}
+                    </p>
+                    {member.email && (
+                      <p className="text-xs text-text-tertiary truncate">
+                        {member.email}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {selectedGroup.members.length > 5 && (
+                <button
+                  onClick={() => setShowMemberModal(true)}
+                  className="w-full text-sm text-accent-primary hover:text-accent-primary-op80 py-2"
+                >
+                  + {selectedGroup.members.length - 5} {t('groups.members')}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </CompactSection>
+    </div>
+  )
+
+  // ============= RENDER =============
+  
+  const currentData = activeTab === 'users' ? filteredUsers : filteredGroups
+  const currentColumns = activeTab === 'users' ? userColumns : groupColumns
+  const currentRowActions = activeTab === 'users' ? userRowActions : groupRowActions
+  const currentSelected = activeTab === 'users' ? selectedUser : selectedGroup
+  const currentDetailContent = activeTab === 'users' ? userDetailContent : groupDetailContent
+  
+  const handleSelect = async (item) => {
+    if (activeTab === 'users') {
+      setSelectedUser(item)
+      setSelectedGroup(null)
+    } else {
+      // Load full group details with members
+      setSelectedGroup(item) // Show immediately
+      setSelectedUser(null)
+      try {
+        const res = await groupsService.getById(item.id)
+        setSelectedGroup(res.data) // Update with members
+      } catch (error) {
+      }
+    }
+  }
+
+  const handleOpenCreateModal = () => {
+    if (activeTab === 'users') {
+      setEditingUser(null)
+      setShowUserModal(true)
+    } else {
+      setEditingGroup(null)
+      setShowGroupModal(true)
+    }
+  }
+
+  // Tabs
+  const tabs = [
+    { id: 'users', label: t('common.users'), icon: User, count: users.length },
+    { id: 'groups', label: t('common.groups'), icon: Users, count: groups.length }
+  ]
+
+  return (
+    <>
+      <ResponsiveLayout
+        title={activeTab === 'users' ? t('common.users') : t('common.groups')}
+        subtitle={activeTab === 'users' ? t('users.subtitle', { count: currentData.length }) : t('groups.subtitle', { count: currentData.length })}
+        icon={activeTab === 'users' ? User : Users}
+        stats={stats}
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        tabLayout="sidebar"
+        helpPageKey="usersGroups"
+        splitView={true}
+        splitEmptyContent={
+          <div className="h-full flex flex-col items-center justify-center p-6 text-center">
+            <div className="w-14 h-14 rounded-xl bg-bg-tertiary flex items-center justify-center mb-3">
+              {activeTab === 'users' ? <User size={24} className="text-text-tertiary" /> : <Users size={24} className="text-text-tertiary" />}
+            </div>
+            <p className="text-sm text-text-secondary">
+              {activeTab === 'users' ? t('users.noUsers') : t('groups.noGroups')}
+            </p>
+          </div>
+        }
+        slideOverOpen={!!currentSelected}
+        slideOverTitle={currentSelected?.username || currentSelected?.name || 'Details'}
+        slideOverContent={currentDetailContent}
+        slideOverWidth="lg"
+        onSlideOverClose={() => { setSelectedUser(null); setSelectedGroup(null) }}
+      >
+        <div className="flex flex-col h-full min-h-0">
+          <ResponsiveDataTable
+          data={currentData}
+          columns={currentColumns}
+          loading={loading}
+          onRowClick={handleSelect}
+          selectedId={currentSelected?.id}
+          searchable
+          searchPlaceholder={`${t('common.search')} ${activeTab}...`}
+          searchKeys={activeTab === 'users' ? ['username', 'email', 'full_name', 'role'] : ['name', 'description']}
+          toolbarFilters={activeTab === 'users' ? [
+            {
+              key: 'role',
+              value: filterRole,
+              onChange: setFilterRole,
+              placeholder: t('common.allRoles'),
+              options: [
+                { value: 'admin', label: t('users.admin') },
+                { value: 'operator', label: t('common.operator') },
+                { value: 'auditor', label: t('common.auditor') },
+                { value: 'viewer', label: t('common.viewer') }
+              ]
+            },
+            {
+              key: 'status',
+              value: filterStatus,
+              onChange: setFilterStatus,
+              placeholder: t('common.allStatus'),
+              options: [
+                { value: 'active', label: t('common.active') },
+                { value: 'disabled', label: t('common.disabled') }
+              ]
+            }
+          ] : []}
+          toolbarActions={canWrite('users') && (
+            isMobile ? (
+              <Button type="button" size="lg" onClick={handleOpenCreateModal} className="w-11 h-11 p-0">
+                <Plus size={22} weight="bold" />
+              </Button>
+            ) : (
+              <Button type="button" size="sm" onClick={handleOpenCreateModal}>
+                <Plus size={14} weight="bold" />
+                {activeTab === 'users' ? t('users.createUser') : t('groups.createGroup')}
+              </Button>
+            )
+          )}
+          sortable
+          defaultSort={{ key: activeTab === 'users' ? 'username' : 'name', direction: 'asc' }}
+          pagination={{
+            page,
+            total: currentData.length,
+            perPage,
+            onChange: setPage,
+            onPerPageChange: (v) => { setPerPage(v); setPage(1) }
+          }}
+          emptyIcon={activeTab === 'users' ? User : Users}
+          emptyTitle={activeTab === 'users' ? t('users.noUsers') : t('groups.noGroups')}
+          emptyDescription={activeTab === 'users' ? t('users.createUser') : t('groups.createGroup')}
+          emptyAction={canWrite('users') && (
+            <Button type="button" onClick={handleOpenCreateModal}>
+              <Plus size={16} /> {activeTab === 'users' ? t('users.createUser') : t('groups.createGroup')}
+            </Button>
+          )}
+        />
+        </div>
+      </ResponsiveLayout>
+
+      {/* User Modal */}
+      <Modal
+        open={showUserModal}
+        onOpenChange={(open) => { setShowUserModal(open); if (!open) setEditingUser(null) }}
+        title={editingUser ? t('users.editUser') : t('users.createUser')}
+        size="md"
+      >
+        <UserForm
+          user={editingUser}
+          onSubmit={editingUser ? handleUpdateUser : handleCreateUser}
+          onCancel={() => { setShowUserModal(false); setEditingUser(null) }}
+        />
+      </Modal>
+
+      {/* Group Modal */}
+      <Modal
+        open={showGroupModal}
+        onOpenChange={(open) => { setShowGroupModal(open); if (!open) setEditingGroup(null) }}
+        title={editingGroup ? t('groups.editGroup') : t('groups.createGroup')}
+        size="md"
+      >
+        <GroupForm
+          group={editingGroup}
+          onSubmit={editingGroup ? handleUpdateGroup : handleCreateGroup}
+          onCancel={() => { setShowGroupModal(false); setEditingGroup(null) }}
+        />
+      </Modal>
+
+      {/* Member Transfer Modal */}
+      {selectedGroup && (
+        <MemberTransferModal
+          open={showMemberModal}
+          onClose={() => setShowMemberModal(false)}
+          title={`${t('groups.members')} - ${selectedGroup.name}`}
+          allUsers={users}
+          currentMembers={selectedGroup.members || []}
+          onSave={handleSaveMembers}
+          loading={savingMembers}
+        />
+      )}
+
+      {/* User mTLS Certificate Modal */}
+      {selectedUser && (
+        <Modal
+          open={showMtlsModal}
+          onOpenChange={handleCloseMtlsModal}
+          title={t('users.mtls.addCert', { username: selectedUser.username })}
+        >
+          <div className="p-4 space-y-4">
+            {mtlsResult ? (
+              <>
+                <div className="p-3 rounded-lg bg-status-success-op10 text-sm text-status-success font-medium">
+                  {t('users.mtls.generated')}
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs text-text-secondary font-medium">{t('common.certificate')}</label>
+                    <textarea readOnly value={mtlsResult.certificate || ''} className="w-full h-24 mt-1 p-2 text-xs font-mono bg-bg-tertiary border border-border rounded-lg resize-none" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-text-secondary font-medium">{t('account.privateKey')}</label>
+                    <textarea readOnly value={mtlsResult.private_key || ''} className="w-full h-24 mt-1 p-2 text-xs font-mono bg-bg-tertiary border border-border rounded-lg resize-none" />
+                  </div>
+                </div>
+                <div className="flex justify-end pt-4 border-t border-border">
+                  <Button type="button" variant="secondary" onClick={handleCloseMtlsModal}>
+                    {t('common.close')}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex border-b border-border">
+                  <button type="button" className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${mtlsTab === 'generate' ? 'border-accent-primary text-accent-primary' : 'border-transparent text-text-secondary hover:text-text-primary'}`} onClick={() => setMtlsTab('generate')}>
+                    {t('account.mtlsGenerate')}
+                  </button>
+                  <button type="button" className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${mtlsTab === 'import' ? 'border-accent-primary text-accent-primary' : 'border-transparent text-text-secondary hover:text-text-primary'}`} onClick={() => setMtlsTab('import')}>
+                    {t('account.mtlsImport')}
+                  </button>
+                  <button type="button" className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${mtlsTab === 'assign' ? 'border-accent-primary text-accent-primary' : 'border-transparent text-text-secondary hover:text-text-primary'}`} onClick={() => { setMtlsTab('assign'); loadAvailableCerts() }}>
+                    {t('account.mtlsAssign')}
+                  </button>
+                </div>
+
+                {mtlsTab === 'generate' && (
+                  <>
+                    <Input label={t('account.mtlsCertName')} value={mtlsForm.name} onChange={(e) => setMtlsForm(prev => ({ ...prev, name: e.target.value }))} placeholder={`${selectedUser.username}@mtls`} />
+                    <Select
+                      label={t('account.mtlsIssuingCA')}
+                      value={mtlsForm.ca_id}
+                      onChange={(val) => setMtlsForm(prev => ({ ...prev, ca_id: val }))}
+                      placeholder={t('account.mtlsDefaultCA')}
+                      options={cas.filter(ca => ca.has_private_key !== false).map(ca => ({ value: ca.refid || String(ca.id), label: ca.descr || ca.subject || ca.refid }))}
+                    />
+                    <Input label={t('account.mtlsValidityDays')} type="number" value={mtlsForm.validity_days} onChange={(e) => setMtlsForm(prev => ({ ...prev, validity_days: parseInt(e.target.value) || 365 }))} min="1" max="3650" />
+                    <div className="flex justify-end gap-2 pt-4 border-t border-border">
+                      <Button type="button" variant="secondary" onClick={handleCloseMtlsModal}>{t('common.cancel')}</Button>
+                      <Button type="button" onClick={handleGenerateUserMtls} loading={mtlsCreating} disabled={mtlsCreating}>
+                        <Certificate size={16} /> {t('account.generateCertificate')}
+                      </Button>
+                    </div>
+                  </>
+                )}
+
+                {mtlsTab === 'import' && (
+                  <>
+                    <Input label={t('account.mtlsCertName')} value={mtlsImportForm.name} onChange={(e) => setMtlsImportForm(prev => ({ ...prev, name: e.target.value }))} placeholder={t('account.mtlsImportNamePlaceholder')} />
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary mb-1">{t('account.mtlsPemData')}</label>
+                      <textarea value={mtlsImportForm.pem} onChange={(e) => setMtlsImportForm(prev => ({ ...prev, pem: e.target.value }))} placeholder="-----BEGIN CERTIFICATE-----" className="w-full h-32 p-2 text-xs font-mono bg-bg-tertiary border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-accent-primary" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-text-secondary mb-1">{t('account.mtlsOrUploadFile')}</label>
+                      <input type="file" accept=".pem,.crt,.cer" onChange={handleMtlsPemFileUpload} className="block w-full text-xs text-text-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-border file:text-sm file:font-medium file:bg-bg-secondary file:text-text-primary hover:file:bg-bg-tertiary" />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-4 border-t border-border">
+                      <Button type="button" variant="secondary" onClick={handleCloseMtlsModal}>{t('common.cancel')}</Button>
+                      <Button type="button" onClick={handleImportUserMtls} loading={mtlsCreating} disabled={mtlsCreating || !mtlsImportForm.pem.trim()}>
+                        <Certificate size={16} /> {t('account.importCertificate')}
+                      </Button>
+                    </div>
+                  </>
+                )}
+
+                {mtlsTab === 'assign' && (
+                  <>
+                    {availableCertsLoading ? (
+                      <div className="flex justify-center py-8">
+                        <LoadingSpinner size="sm" />
+                      </div>
+                    ) : availableCerts.length === 0 ? (
+                      <div className="text-center py-8 text-text-secondary text-sm">
+                        <Certificate size={32} className="mx-auto mb-2 opacity-50" />
+                        <p>{t('account.mtlsNoAvailableCerts')}</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {availableCerts.map(cert => (
+                          <button
+                            key={cert.id}
+                            type="button"
+                            className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                              selectedAssignCert?.id === cert.id
+                                ? 'border-accent-primary bg-accent-primary-op10'
+                                : 'border-border hover:border-text-secondary bg-bg-secondary'
+                            }`}
+                            onClick={() => setSelectedAssignCert(cert)}
+                          >
+                            <div className="font-medium text-sm text-text-primary">{cert.name}</div>
+                            <div className="text-xs text-text-secondary mt-1 truncate">{cert.subject}</div>
+                            {cert.valid_to && (
+                              <div className="text-xs text-text-tertiary mt-0.5">
+                                {t('account.mtlsExpiresOn', { date: new Date(cert.valid_to).toLocaleDateString() })}
+                              </div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex justify-end gap-2 pt-4 border-t border-border">
+                      <Button type="button" variant="secondary" onClick={handleCloseMtlsModal}>{t('common.cancel')}</Button>
+                      <Button type="button" onClick={handleAssignUserMtls} loading={mtlsCreating} disabled={mtlsCreating || !selectedAssignCert}>
+                        <Certificate size={16} /> {t('account.assignCertificate')}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </Modal>
+      )}
+    </>
+  )
+}
+
+// ============= USER FORM =============
+
+function UserForm({ user, onSubmit, onCancel }) {
+  const { t } = useTranslation()
+  const [formData, setFormData] = useState({
+    username: '',
+    email: '',
+    password: '',
+    full_name: '',
+    role: 'viewer',
+    custom_role_id: '',
+    active: true
+  })
+  const [loading, setLoading] = useState(false)
+  const [customRoles, setCustomRoles] = useState([])
+
+  useEffect(() => {
+    apiClient.get('/rbac/roles').then(res => {
+      setCustomRoles((res.data || []).filter(r => !r.is_system))
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (user) {
+      setFormData({
+        username: user.username || '',
+        email: user.email || '',
+        password: '',
+        full_name: user.full_name || '',
+        role: user.role || 'viewer',
+        custom_role_id: user.custom_role_id || '',
+        active: user.active !== false
+      })
+    } else {
+      setFormData({
+        username: '',
+        email: '',
+        password: '',
+        full_name: '',
+        role: 'viewer',
+        custom_role_id: '',
+        active: true
+      })
+    }
+  }, [user])
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      const data = { ...formData }
+      if (user && !data.password) delete data.password
+      data.custom_role_id = data.custom_role_id ? parseInt(data.custom_role_id) : null
+      await onSubmit(data)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="p-4 space-y-4">
+      <Input
+        label={t('common.username')}
+        value={formData.username}
+        onChange={(e) => setFormData(p => ({ ...p, username: e.target.value }))}
+        required
+        disabled={!!user}
+        placeholder={t('users.usernamePlaceholder')}
+      />
+      <Input
+        label={t('common.email')}
+        type="email"
+        value={formData.email}
+        onChange={(e) => setFormData(p => ({ ...p, email: e.target.value }))}
+        required
+        placeholder={t('users.emailPlaceholder')}
+      />
+      <Input
+        label={t('common.name')}
+        value={formData.full_name}
+        onChange={(e) => setFormData(p => ({ ...p, full_name: e.target.value }))}
+        placeholder={t('users.namePlaceholder')}
+      />
+      <Input
+        label={user ? t('common.newPassword') : t('common.password')}
+        type="password"
+        noAutofill
+        value={formData.password}
+        onChange={(e) => setFormData(p => ({ ...p, password: e.target.value }))}
+        required={!user}
+        hasExistingValue={!!user}
+        showStrength={!user}
+      />
+      <Select
+        label={t('common.role')}
+        value={formData.role}
+        onChange={(val) => setFormData(p => ({ ...p, role: val }))}
+        options={[
+          { value: 'admin', label: t('users.admin') },
+          { value: 'operator', label: t('common.operator') },
+          { value: 'auditor', label: t('common.auditor') },
+          { value: 'viewer', label: t('common.viewer') }
+        ]}
+      />
+      {customRoles.length > 0 && (
+        <Select
+          label={t('rbac.customRole')}
+          value={formData.custom_role_id}
+          onChange={(val) => setFormData(p => ({ ...p, custom_role_id: val }))}
+          options={[
+            { value: '', label: t('rbac.noCustomRole') },
+            ...customRoles.map(r => ({ value: String(r.id), label: r.name }))
+          ]}
+        />
+      )}
+      {user && (
+        <div className="flex items-center justify-between py-2">
+          <div>
+            <label className="text-sm font-medium text-text-primary">{t('common.status')}</label>
+            <p className="text-xs text-text-secondary">{t('users.activeDescription')}</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={formData.active}
+            onClick={() => setFormData(p => ({ ...p, active: !p.active }))}
+            className={cn(
+              "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+              formData.active ? "bg-accent-primary" : "bg-bg-tertiary"
+            )}
+          >
+            <span className={cn(
+              "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+              formData.active ? "translate-x-6" : "translate-x-1"
+            )} />
+          </button>
+        </div>
+      )}
+      <div className="flex justify-end gap-2 pt-4 border-t border-border">
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          {t('common.cancel')}
+        </Button>
+        <Button type="submit" disabled={loading}>
+          {loading ? <LoadingSpinner size="sm" /> : (user ? t('common.save') : t('common.create'))}
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+// ============= GROUP FORM =============
+
+function GroupForm({ group, onSubmit, onCancel }) {
+  const { t } = useTranslation()
+  const [formData, setFormData] = useState({
+    name: '',
+    description: ''
+  })
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (group) {
+      setFormData({
+        name: group.name || '',
+        description: group.description || ''
+      })
+    } else {
+      setFormData({
+        name: '',
+        description: ''
+      })
+    }
+  }, [group])
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      await onSubmit(formData)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="p-4 space-y-4">
+      <Input
+        label={t('groups.groupName')}
+        value={formData.name}
+        onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))}
+        required
+        placeholder={t('groups.namePlaceholder')}
+      />
+      <Input
+        label={t('common.description')}
+        value={formData.description}
+        onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))}
+        placeholder={t('groups.descriptionPlaceholder')}
+      />
+      <div className="flex justify-end gap-2 pt-4 border-t border-border">
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          {t('common.cancel')}
+        </Button>
+        <Button type="submit" disabled={loading}>
+          {loading ? <LoadingSpinner size="sm" /> : (group ? t('common.save') : t('common.create'))}
+        </Button>
+      </div>
+    </form>
+  )
+}

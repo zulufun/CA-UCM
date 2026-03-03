@@ -1,0 +1,181 @@
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
+import { AuthProvider, ThemeProvider, NotificationProvider, MobileProvider, WindowManagerProvider, useAuth } from './contexts'
+import { AppShell, ErrorBoundary, LoadingSpinner, SessionWarning, ForcePasswordChange, SafeModeOverlay, DetailWindowLayer } from './components'
+
+// Auto-reload on chunk load failure (stale cache after update)
+function lazyWithRetry(importFn) {
+  return lazy(() => importFn().catch(() => {
+    // Chunk failed to load (likely 404 after update) — reload once
+    const key = 'chunk_reload'
+    if (!sessionStorage.getItem(key)) {
+      sessionStorage.setItem(key, '1')
+      window.location.reload()
+    }
+    sessionStorage.removeItem(key)
+    return importFn()
+  }))
+}
+
+// Lazy load pages for code splitting
+const LoginPage = lazyWithRetry(() => import('./pages/LoginPage'))
+const ForgotPasswordPage = lazyWithRetry(() => import('./pages/ForgotPasswordPage'))
+const ResetPasswordPage = lazyWithRetry(() => import('./pages/ResetPasswordPage'))
+const DashboardPage = lazyWithRetry(() => import('./pages/DashboardPage'))
+const CertificatesPage = lazyWithRetry(() => import('./pages/CertificatesPage'))
+const UserCertificatesPage = lazyWithRetry(() => import('./pages/UserCertificatesPage'))
+const CAsPage = lazyWithRetry(() => import('./pages/CAsPage'))
+const CSRsPage = lazyWithRetry(() => import('./pages/CSRsPage'))
+const TemplatesPage = lazyWithRetry(() => import('./pages/TemplatesPage'))
+const UsersGroupsPage = lazyWithRetry(() => import('./pages/UsersGroupsPage'))
+const ACMEPage = lazyWithRetry(() => import('./pages/ACMEPage'))
+const SCEPPage = lazyWithRetry(() => import('./pages/SCEPPage'))
+const ESTPage = lazyWithRetry(() => import('./pages/ESTPage'))
+const SettingsPage = lazyWithRetry(() => import('./pages/SettingsPage'))
+const OperationsPage = lazyWithRetry(() => import('./pages/OperationsPage'))
+const CertificateToolsPage = lazyWithRetry(() => import('./pages/CertificateToolsPage'))
+const AccountPage = lazyWithRetry(() => import('./pages/AccountPage'))
+const AuditLogsPage = lazyWithRetry(() => import('./pages/AuditLogsPage'))
+const CRLOCSPPage = lazyWithRetry(() => import('./pages/CRLOCSPPage'))
+const TrustStorePage = lazyWithRetry(() => import('./pages/TrustStorePage'))
+const RBACPage = lazyWithRetry(() => import('./pages/RBACPage'))
+const HSMPage = lazyWithRetry(() => import('./pages/HSMPage'))
+const DevShowcasePage = lazyWithRetry(() => import('./pages/DevShowcasePage'))
+const PoliciesPage = lazyWithRetry(() => import('./pages/PoliciesPage'))
+const ApprovalsPage = lazyWithRetry(() => import('./pages/ApprovalsPage'))
+const ReportsPage = lazyWithRetry(() => import('./pages/ReportsPage'))
+
+// Loading fallback for lazy components
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center h-full min-h-[400px]">
+      <LoadingSpinner size="lg" />
+    </div>
+  )
+}
+
+function ProtectedRoute({ children }) {
+  const { isAuthenticated, loading } = useAuth()
+  
+  if (loading) {
+    return <PageLoader />
+  }
+  
+  return isAuthenticated ? children : <Navigate to="/login" replace />
+}
+
+function AdminRoute({ children }) {
+  const { isAuthenticated, loading, permissions } = useAuth()
+  
+  if (loading) return <PageLoader />
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+  if (!permissions?.includes('*')) return <Navigate to="/" replace />
+  
+  return children
+}
+
+function PermissionRoute({ children, permission }) {
+  const { isAuthenticated, loading, permissions } = useAuth()
+  
+  if (loading) return <PageLoader />
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+  if (permissions?.includes('*')) return children
+  if (permission && !permissions?.includes(permission)) return <Navigate to="/" replace />
+  
+  return children
+}
+
+function AppRoutes() {
+  const { isAuthenticated, loading, sessionChecked, forcePasswordChange, clearForcePasswordChange, logout } = useAuth()
+  
+  return (
+    <Suspense fallback={<PageLoader />}>
+      {/* Global session warning (when logged in) */}
+      {isAuthenticated && <SessionWarning onLogout={logout} />}
+      
+      {/* Force password change modal */}
+      {isAuthenticated && forcePasswordChange && (
+        <ForcePasswordChange onComplete={clearForcePasswordChange} />
+      )}
+      
+      <Routes>
+        <Route 
+          path="/login" 
+          element={
+            loading ? <PageLoader /> :
+            isAuthenticated ? <Navigate to="/" replace /> : 
+            <LoginPage />
+          } 
+        />
+        <Route 
+          path="/login/sso-complete" 
+          element={<LoginPage />} 
+        />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        
+        <Route element={<AppShell />}>
+          <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+          <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+          <Route path="/certificates" element={<ProtectedRoute><CertificatesPage /></ProtectedRoute>} />
+          <Route path="/certificates/:id" element={<ProtectedRoute><CertificatesPage /></ProtectedRoute>} />
+          <Route path="/user-certificates" element={<PermissionRoute permission="read:user_certificates"><UserCertificatesPage /></PermissionRoute>} />
+          <Route path="/cas" element={<ProtectedRoute><CAsPage /></ProtectedRoute>} />
+          <Route path="/cas/:id" element={<ProtectedRoute><CAsPage /></ProtectedRoute>} />
+          <Route path="/csrs" element={<ProtectedRoute><CSRsPage /></ProtectedRoute>} />
+          <Route path="/templates" element={<ProtectedRoute><TemplatesPage /></ProtectedRoute>} />
+          <Route path="/users" element={<AdminRoute><UsersGroupsPage /></AdminRoute>} />
+          <Route path="/acme" element={<PermissionRoute permission="read:acme"><ACMEPage /></PermissionRoute>} />
+          <Route path="/scep-config" element={<PermissionRoute permission="read:scep"><SCEPPage /></PermissionRoute>} />
+          <Route path="/est-config" element={<PermissionRoute permission="read:est"><ESTPage /></PermissionRoute>} />
+          <Route path="/settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
+          <Route path="/audit" element={<PermissionRoute permission="read:audit"><AuditLogsPage /></PermissionRoute>} />
+          <Route path="/operations" element={<AdminRoute><OperationsPage /></AdminRoute>} />
+          <Route path="/import" element={<Navigate to="/operations" replace />} />
+          <Route path="/tools" element={<ProtectedRoute><CertificateToolsPage /></ProtectedRoute>} />
+          <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
+          <Route path="/crl-ocsp" element={<PermissionRoute permission="read:crl"><CRLOCSPPage /></PermissionRoute>} />
+          <Route path="/truststore" element={<PermissionRoute permission="read:truststore"><TrustStorePage /></PermissionRoute>} />
+          <Route path="/truststore/:id" element={<PermissionRoute permission="read:truststore"><TrustStorePage /></PermissionRoute>} />
+          
+          {/* Security & Administration */}
+          <Route path="/groups" element={<Navigate to="/users?tab=groups" replace />} />
+          <Route path="/rbac" element={<AdminRoute><RBACPage /></AdminRoute>} />
+          <Route path="/sso" element={<Navigate to="/settings?tab=sso" replace />} />
+          <Route path="/hsm" element={<PermissionRoute permission="read:hsm"><HSMPage /></PermissionRoute>} />
+          <Route path="/security" element={<Navigate to="/settings?tab=security" replace />} />
+          {/* Governance */}
+          <Route path="/policies" element={<PermissionRoute permission="read:policies"><PoliciesPage /></PermissionRoute>} />
+          <Route path="/approvals" element={<PermissionRoute permission="read:approvals"><ApprovalsPage /></PermissionRoute>} />
+          <Route path="/reports" element={<PermissionRoute permission="read:audit"><ReportsPage /></PermissionRoute>} />
+          {/* Component showcase — accessible by URL only, not in sidebar */}
+          <Route path="/dev/components" element={<ProtectedRoute><DevShowcasePage /></ProtectedRoute>} />
+        </Route>
+        
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
+  )
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <ThemeProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <NotificationProvider>
+              <MobileProvider>
+                <WindowManagerProvider>
+                  <SafeModeOverlay />
+                  <AppRoutes />
+                  <DetailWindowLayer />
+                </WindowManagerProvider>
+              </MobileProvider>
+            </NotificationProvider>
+          </AuthProvider>
+        </BrowserRouter>
+      </ThemeProvider>
+    </ErrorBoundary>
+  )
+}

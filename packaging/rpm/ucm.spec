@@ -1,0 +1,263 @@
+Name:           ucm
+Version:        0.0.0
+Release:        1%{?dist}
+Summary:        Ultimate CA Manager - Complete PKI Management Platform
+
+License:        BSD-3-Clause
+URL:            https://github.com/NeySlim/ultimate-ca-manager
+Source0:        %{name}-%{version}.tar.gz
+
+BuildArch:      noarch
+# Disable auto-detection of requires (we manage deps via venv)
+AutoReqProv:    no
+Requires:       python3 >= 3.9
+Requires:       systemd
+Requires:       openssl >= 1.1.1
+Recommends:     softhsm
+Suggests:       openldap-clients
+
+# Use /opt/ucm like DEB package for consistency
+%define ucm_home /opt/ucm
+%define ucm_data /opt/ucm/data
+
+%description
+Ultimate CA Manager (UCM) is a comprehensive PKI management platform.
+
+%prep
+%setup -q
+
+%build
+# Nothing to build
+
+%install
+install -d %{buildroot}%{ucm_home}
+install -d %{buildroot}%{ucm_home}/backend
+install -d %{buildroot}%{ucm_home}/frontend
+install -d %{buildroot}%{ucm_home}/scripts
+install -d %{buildroot}%{ucm_data}/{ca,certs,private,crl,scep,backups,sessions}
+install -d %{buildroot}%{_sysconfdir}/%{name}
+install -d %{buildroot}%{_localstatedir}/log/%{name}
+install -d %{buildroot}%{_unitdir}
+install -d %{buildroot}/usr/lib/firewalld/services
+
+cp -r backend/* %{buildroot}%{ucm_home}/backend/
+cp -r frontend/dist %{buildroot}%{ucm_home}/frontend/
+install -m 644 VERSION %{buildroot}%{ucm_home}/VERSION
+find %{buildroot}%{ucm_home} -name '.env*' -delete
+find %{buildroot}%{ucm_home} -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+find %{buildroot}%{ucm_home} -name '*.pyc' -delete
+
+install -m 644 backend/requirements.txt %{buildroot}%{ucm_home}/requirements.txt
+install -m 755 packaging/debian/start-ucm.sh %{buildroot}%{ucm_home}/start-ucm.sh
+install -m 755 packaging/scripts/configure-firewall.sh %{buildroot}%{ucm_home}/scripts/
+install -m 755 packaging/scripts/ucm-watcher.sh %{buildroot}%{ucm_home}/scripts/
+install -m 644 packaging/firewall/ucm.xml %{buildroot}/usr/lib/firewalld/services/
+install -m 644 packaging/rpm/ucm.service %{buildroot}%{_unitdir}/%{name}.service
+install -m 644 packaging/systemd/ucm-watcher.path %{buildroot}%{_unitdir}/%{name}-watcher.path
+install -m 644 packaging/systemd/ucm-watcher.service %{buildroot}%{_unitdir}/%{name}-watcher.service
+
+%pre
+getent group %{name} >/dev/null || groupadd -r %{name}
+getent passwd %{name} >/dev/null || useradd -r -g %{name} -d %{ucm_home} -s /sbin/nologin -c "UCM Service Account" %{name}
+
+%post
+%systemd_post %{name}.service
+
+# Install sudoers for service management (watcher handles restart/update)
+cat > /etc/sudoers.d/ucm << 'SUDOERSEOF'
+# UCM service management - allows ucm user to restart service without password
+# This is required for HTTPS certificate application and other system operations
+ucm ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart ucm
+ucm ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload ucm
+ucm ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop ucm
+ucm ALL=(ALL) NOPASSWD: /usr/bin/systemctl start ucm
+SUDOERSEOF
+chmod 440 /etc/sudoers.d/ucm
+
+# Enable ucm-watcher path unit for restart/update handling
+systemctl daemon-reload
+systemctl enable ucm-watcher.path
+systemctl start ucm-watcher.path
+
+# Paths (same as DEB)
+UCM_HOME=%{ucm_home}
+UCM_DATA=%{ucm_data}
+UCM_CONFIG=/etc/%{name}
+
+mkdir -p $UCM_DATA/{ca,certs,private,crl,scep,backups,sessions}
+mkdir -p /var/log/%{name}
+
+# SoftHSM setup: add ucm user to softhsm/ods group and prepare token directory
+HSM_GROUP=""
+if getent group softhsm >/dev/null 2>&1; then
+    HSM_GROUP="softhsm"
+elif getent group ods >/dev/null 2>&1; then
+    HSM_GROUP="ods"
+fi
+if [ -n "$HSM_GROUP" ]; then
+    usermod -aG "$HSM_GROUP" %{name} 2>/dev/null || true
+    mkdir -p /var/lib/softhsm/tokens
+    chown root:"$HSM_GROUP" /var/lib/softhsm/tokens
+    chmod 1770 /var/lib/softhsm/tokens
+fi
+
+# Check for v1.8.x data to migrate
+V1_DB=""
+if [ -f "$UCM_HOME/backend/data/ucm.db" ] && [ ! -f "$UCM_DATA/ucm.db" ]; then
+    V1_DB="$UCM_HOME/backend/data/ucm.db"
+elif [ -f "/var/lib/ucm/ucm.db" ] && [ ! -f "$UCM_DATA/ucm.db" ]; then
+    V1_DB="/var/lib/ucm/ucm.db"
+fi
+
+if [ -n "$V1_DB" ]; then
+    echo "Migrating v1.8.x data to v2.0..."
+    cp "$V1_DB" "$UCM_DATA/ucm.db"
+    V1_DIR=$(dirname "$V1_DB")
+    for dir in ca certs private crl; do
+        [ -d "$V1_DIR/$dir" ] && cp -r "$V1_DIR/$dir"/* "$UCM_DATA/$dir/" 2>/dev/null || true
+    done
+    # Update config if exists
+    [ -f "$UCM_CONFIG/ucm.env" ] && sed -i "s|DATABASE_PATH=.*|DATABASE_PATH=$UCM_DATA/ucm.db|" "$UCM_CONFIG/ucm.env"
+    echo "✓ Migration complete"
+fi
+
+# Generate secrets
+ADMIN_PASS="changeme123"
+SECRET_KEY=$(openssl rand -hex 32)
+JWT_SECRET=$(openssl rand -hex 32)
+
+# Create config if not exists
+if [ ! -f "$UCM_CONFIG/ucm.env" ]; then
+    cat > "$UCM_CONFIG/ucm.env" << ENVEOF
+# UCM Configuration - Generated on install
+DATABASE_PATH=$UCM_DATA/ucm.db
+DATA_DIR=$UCM_DATA
+HTTPS_PORT=8443
+LOG_LEVEL=INFO
+
+# Security (auto-generated - keep secret)
+SECRET_KEY=$SECRET_KEY
+JWT_SECRET_KEY=$JWT_SECRET
+INITIAL_ADMIN_PASSWORD=$ADMIN_PASS
+ENVEOF
+    chmod 600 "$UCM_CONFIG/ucm.env"
+    
+    echo ""
+    # Detect access URLs
+    INSTALL_HOST=$(hostname -f 2>/dev/null || hostname)
+    INSTALL_PORT=$(grep "^HTTPS_PORT=" "$UCM_CONFIG/ucm.env" 2>/dev/null | cut -d= -f2)
+    INSTALL_PORT=${INSTALL_PORT:-8443}
+    INSTALL_IPS=$(hostname -I 2>/dev/null | xargs)
+    echo ""
+    echo "============================================"
+    echo " UCM INSTALLED"
+    echo "============================================"
+    echo ""
+    echo " Access:   https://${INSTALL_HOST}:${INSTALL_PORT}"
+    if [ -n "$INSTALL_IPS" ]; then
+        for ip in $INSTALL_IPS; do
+            echo "            https://${ip}:${INSTALL_PORT}"
+        done
+    fi
+    echo ""
+    echo " Admin:    admin / $ADMIN_PASS"
+    echo " Config:   $UCM_CONFIG/ucm.env"
+    echo ""
+    # Optional packages suggestions
+    echo " Optional packages:"
+    if rpm -q softhsm >/dev/null 2>&1; then
+        echo "  [ok] softhsm (HSM support)"
+    else
+        echo "  [ ]  softhsm - HSM support (dnf install softhsm)"
+    fi
+    echo ""
+    echo "============================================"
+fi
+
+# Create venv if gunicorn not found
+if [ ! -f "$UCM_HOME/venv/bin/gunicorn" ]; then
+    echo "Creating Python virtual environment..."
+    rm -rf "$UCM_HOME/venv" 2>/dev/null || true
+    python3 -m venv "$UCM_HOME/venv"
+    "$UCM_HOME/venv/bin/pip" install --quiet --upgrade pip
+    "$UCM_HOME/venv/bin/pip" install --quiet -r "$UCM_HOME/requirements.txt"
+fi
+
+# Set permissions
+chown -R %{name}:%{name} $UCM_HOME
+chown -R %{name}:%{name} $UCM_CONFIG
+chown -R %{name}:%{name} /var/log/%{name}
+chmod 750 $UCM_DATA
+
+# Generate HTTPS cert if not exists
+if [ ! -f "$UCM_DATA/https_cert.pem" ]; then
+    echo "Generating HTTPS certificate..."
+    # Detect hostname and IPs for SAN
+    CERT_HOST=$(hostname -f 2>/dev/null || hostname)
+    CERT_IPS=""
+    for ip in $(hostname -I 2>/dev/null); do
+        CERT_IPS="${CERT_IPS},IP:${ip}"
+    done
+    CERT_SAN="DNS:${CERT_HOST},DNS:localhost,IP:127.0.0.1${CERT_IPS}"
+    
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+        -keyout "$UCM_DATA/https_key.pem" \
+        -out "$UCM_DATA/https_cert.pem" \
+        -subj "/CN=${CERT_HOST}/O=UCM/OU=PKI" \
+        -addext "subjectAltName=${CERT_SAN}" 2>/dev/null
+    chown %{name}:%{name} "$UCM_DATA"/https_*.pem
+    chmod 600 "$UCM_DATA/https_key.pem"
+    chmod 644 "$UCM_DATA/https_cert.pem"
+fi
+
+# Automatic migration from v1.8.x
+V1_DATA="$UCM_HOME/backend/data"
+if [ -f "$V1_DATA/ucm.db" ] && [ ! -f "$UCM_DATA/ucm.db" ]; then
+    echo "Detected UCM v1.8.x - running automatic migration..."
+    if [ -f "$UCM_HOME/backend/migrate_v1_to_v2.py" ]; then
+        python3 "$UCM_HOME/backend/migrate_v1_to_v2.py" "$UCM_HOME" 2>&1 | tee /var/log/%{name}/migration.log
+    fi
+fi
+
+# Start/restart service
+systemctl daemon-reload
+systemctl enable %{name}
+if systemctl is-active --quiet %{name}; then
+    systemctl restart %{name} || true
+else
+    systemctl start %{name} || true
+fi
+
+# Configure firewall if script exists
+if [ -x "$UCM_HOME/scripts/configure-firewall.sh" ]; then
+    "$UCM_HOME/scripts/configure-firewall.sh" || true
+fi
+
+%preun
+%systemd_preun %{name}.service
+%systemd_preun %{name}-watcher.path
+
+%postun
+%systemd_postun_with_restart %{name}.service
+
+%files
+%{ucm_home}/
+%dir %{_sysconfdir}/%{name}/
+%dir %{_localstatedir}/log/%{name}/
+%{_unitdir}/%{name}.service
+%{_unitdir}/%{name}-watcher.path
+%{_unitdir}/%{name}-watcher.service
+/usr/lib/firewalld/services/ucm.xml
+
+%changelog
+* Sat Feb 07 2026 UCM Team <dev@ucm.local> - 2.1.0-1
+- Unified release: Pro features merged into main
+- Interactive firewall configuration on install
+- i18n support (9 languages)
+- Column resize in tables
+
+* Tue Feb 03 2026 UCM Team <dev@ucm.local> - 2.0.0-1
+- Version 2.0.0 release
+- Pro features: HSM, SSO, RBAC, Groups
+- WebAuthn multi-key support
+- Service restart permissions
