@@ -12,7 +12,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
-import { ShieldCheck, Fingerprint, Key, User, ArrowRight, ArrowLeft, GithubLogo, Palette, Globe, SignIn, Lock } from '@phosphor-icons/react'
+import { ShieldCheck, Fingerprint, Key, User, ArrowRight, ArrowLeft, GithubLogo, Palette, Globe, SignIn, Lock, EnvelopeSimple, Phone } from '@phosphor-icons/react'
 import { Card, Button, Input, Logo, LoadingSpinner } from '../components'
 import { languages } from '../i18n'
 import { useAuth, useNotification } from '../contexts'
@@ -372,7 +372,16 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-dvh flex items-start sm:items-center justify-center bg-gradient-to-br from-bg-primary via-bg-secondary to-bg-tertiary p-2 sm:p-4 pt-2 sm:pt-4 overflow-hidden">
+    <div className="min-h-dvh flex items-start sm:items-center justify-center p-2 sm:p-4 pt-2 sm:pt-4 overflow-hidden relative">
+      {/* Background image with blur */}
+      <div
+        className="absolute inset-0 bg-cover bg-center"
+        style={{ backgroundImage: 'url(/login-bg.png)' }}
+      />
+      {/* Dark overlay */}
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      {/* Content */}
+      <div className="relative z-10 w-full flex items-start sm:items-center justify-center">
       <Card className="w-full max-w-md p-4 sm:p-8 space-y-3 sm:space-y-5">
         {/* Logo */}
         <div className="flex justify-center mb-1 sm:mb-2">
@@ -913,23 +922,37 @@ export default function LoginPage() {
             </div>
             
             {/* GitHub Link */}
-            <a
-              href="https://github.com/NeySlim/ultimate-ca-manager"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center w-9 h-9 rounded-md bg-bg-tertiary hover:bg-bg-secondary border border-border text-text-secondary hover:text-text-primary transition-colors"
-              title="GitHub"
-            >
-              <GithubLogo size={18} />
-            </a>
+            
           </div>
           
           {/* Version */}
           <p className="text-center text-xs text-text-tertiary">
-            Ultimate Certificate Manager v{__APP_VERSION__ || '2'}
+            QUẢN LÝ CHỨNG CHỈ SSL 
           </p>
+
+          {/* Contact support */}
+          <div className="text-center space-y-1 pt-1">
+            <p className="text-xs text-text-tertiary">{t('auth.needHelp', 'Gặp sự cố? Liên hệ hỗ trợ:')}</p>
+            <div className="flex items-center justify-center gap-3 flex-wrap">
+              <a
+                href="mailto:admin@gmail.com"
+                className="flex items-center gap-1 text-xs text-accent hover:text-accent-op80 hover:underline transition-colors"
+              >
+                <EnvelopeSimple size={13} weight="fill" />
+                admin@gmail.com
+              </a>
+              <a
+                href="tel:0398194xxx"
+                className="flex items-center gap-1 text-xs text-accent hover:text-accent-op80 hover:underline transition-colors"
+              >
+                <Phone size={13} weight="fill" />
+                03xxxxxx
+              </a>
+            </div>
+          </div>
         </div>
       </Card>
+      </div>
     </div>
   )
 }

@@ -223,9 +223,13 @@ export function AppShell() {
           {/* User dropdown menu */}
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
-              <button className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-bg-tertiary">
-                <UserCircle size={16} />
+              <button className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-bg-tertiary overflow-hidden rounded-full">
+                <img src="/avatar.png" alt="avatar" className="w-full h-full object-cover" onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block' }} />
+                <UserCircle size={16} style={{display:'none'}} />
               </button>
+              {/* <button className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-bg-tertiary">
+                <UserCircle size={16} />
+              </button> */}
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content 

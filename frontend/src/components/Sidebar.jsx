@@ -254,8 +254,8 @@ export function Sidebar({ activePage }) {
       <Link to="/" className="flex items-center gap-2.5 px-3.5 mb-1 shrink-0" title={t('common.dashboard')}>
         <Logo variant="icon" withText={false} size="xs" />
         <div className="flex flex-col min-w-0">
-          <span className="text-xs font-bold text-text-primary leading-tight">UCM</span>
-          <span className="text-3xs text-text-tertiary leading-tight truncate">Certificate Manager</span>
+          <span className="text-xs font-bold text-text-primary leading-tight">CA - Quản lý chứng chỉ</span>
+          <span className="text-3xs text-text-tertiary leading-tight truncate">Quản lý chứng chỉ</span>
         </div>
       </Link>
 
@@ -328,8 +328,12 @@ export function Sidebar({ activePage }) {
           <DropdownMenu.Trigger asChild>
             <button className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-bg-tertiary transition-colors">
               <div className="relative shrink-0">
-                <div className="w-7 h-7 rounded-full bg-accent-primary-op15 border border-accent-primary-op20 flex items-center justify-center">
+                 {/* <div className="w-7 h-7 rounded-full bg-accent-primary-op15 border border-accent-primary-op20 flex items-center justify-center">
                   <UserCircle size={16} weight="bold" className="text-accent-primary" />
+                </div> */}
+                <div className="w-7 h-7 rounded-full bg-accent-primary-op15 border border-accent-primary-op20 flex items-center justify-center overflow-hidden">
+                  <img src="/avatar.png" alt="avatar" className="w-full h-full object-cover" onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='flex' }} />
+                  <UserCircle size={16} weight="bold" className="text-accent-primary hidden" style={{display:'none'}} />
                 </div>
                 <WebSocketIndicator variant="dot" className="absolute -bottom-0.5 -right-0.5" />
               </div>

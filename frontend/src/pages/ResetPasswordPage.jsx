@@ -158,7 +158,7 @@ export default function ResetPasswordPage() {
         </Card>
 
         <p className="text-center text-xs text-text-tertiary mt-6">
-          Ultimate Certificate Manager v2
+          QUẢN LÝ CHỨNG CHỈ v2
         </p>
       </div>
     </div>

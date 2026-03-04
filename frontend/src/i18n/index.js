@@ -3,25 +3,27 @@ import { initReactI18next } from 'react-i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 
 import en from './locales/en.json'
-import fr from './locales/fr.json'
-import de from './locales/de.json'
-import es from './locales/es.json'
-import it from './locales/it.json'
-import pt from './locales/pt.json'
-import uk from './locales/uk.json'
-import zh from './locales/zh.json'
-import ja from './locales/ja.json'
+// import fr from './locales/fr.json'
+// import de from './locales/de.json'
+// import es from './locales/es.json'
+// import it from './locales/it.json'
+// import pt from './locales/pt.json'
+// import uk from './locales/uk.json'
+// import zh from './locales/zh.json'
+// import ja from './locales/ja.json'
+import vn from './locales/vn.json'
 
 export const languages = [
   { code: 'en', name: 'English', flag: '🇬🇧' },
-  { code: 'fr', name: 'Français', flag: '🇫🇷' },
-  { code: 'de', name: 'Deutsch', flag: '🇩🇪' },
-  { code: 'es', name: 'Español', flag: '🇪🇸' },
-  { code: 'it', name: 'Italiano', flag: '🇮🇹' },
-  { code: 'pt', name: 'Português', flag: '🇵🇹' },
-  { code: 'uk', name: 'Українська', flag: '🇺🇦' },
-  { code: 'zh', name: '中文', flag: '🇨🇳' },
-  { code: 'ja', name: '日本語', flag: '🇯🇵' },
+  // { code: 'fr', name: 'Français', flag: '🇫🇷' },
+  // { code: 'de', name: 'Deutsch', flag: '🇩🇪' },
+  // { code: 'es', name: 'Español', flag: '🇪🇸' },
+  // { code: 'it', name: 'Italiano', flag: '🇮🇹' },
+  // { code: 'pt', name: 'Português', flag: '🇵🇹' },
+  // { code: 'uk', name: 'Українська', flag: '🇺🇦' },
+  // { code: 'zh', name: '中文', flag: '🇨🇳' },
+  // { code: 'ja', name: '日本語', flag: '🇯🇵' },
+  { code: 'vn', name: 'Tiếng Việt', flag: '🇻🇳' },
 ]
 
 i18n
@@ -30,14 +32,15 @@ i18n
   .init({
     resources: {
       en: { translation: en },
-      fr: { translation: fr },
-      de: { translation: de },
-      es: { translation: es },
-      it: { translation: it },
-      pt: { translation: pt },
-      uk: { translation: uk },
-      zh: { translation: zh },
-      ja: { translation: ja },
+      // fr: { translation: fr },
+      // de: { translation: de },
+      // es: { translation: es },
+      // it: { translation: it },
+      // pt: { translation: pt },
+      // uk: { translation: uk },
+      // zh: { translation: zh },
+      // ja: { translation: ja },
+      vn: { translation: vn },
     },
     fallbackLng: 'en',
     interpolation: {
