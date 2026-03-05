@@ -414,14 +414,14 @@ export default function DashboardPage() {
               </div>
               <div>
                 <div className="flex items-baseline gap-2">
-                  <span className="hidden md:inline text-lg font-black tracking-tight logo-text-gradient">T6</span>
-                  <span className="md:hidden text-sm font-black tracking-tight logo-text-gradient opacity-50">T6</span>
+                  <span className="hidden md:inline text-lg font-black tracking-tight logo-text-gradient">TTDL BQP Miền Bắc</span>
+                  <span className="md:hidden text-sm font-black tracking-tight logo-text-gradient opacity-50">TTDL BQP Miền Bắc</span>
                   <span className="text-xs text-text-tertiary">v{versionInfo.version}</span>
                   {versionInfo.update_available && (
                     <Badge variant="warning" size="sm" dot>{t('common.updateAvailable')}</Badge>
                   )}
                 </div>
-                <p className="text-xs text-text-tertiary mt-0.5 hidden md:block">Dashboard quản lý chứng chỉ</p>
+                <p className="text-xs text-text-tertiary mt-0.5 hidden md:block">Dashboard quản lý chứng chỉ chung</p>
               </div>
             </div>
 

@@ -1,0 +1,131 @@
+# ============================================================================
+# UCM - Docker Compose Build from Source
+# ============================================================================
+# Build image từ source code local và chạy production-ready.
+#
+# Usage:
+#   docker-compose -f docker-compose.build.yml up -d --build
+#
+# Rebuild sau khi thay đổi code:
+#   docker-compose -f docker-compose.build.yml up -d --build --force-recreate
+#
+# Xem logs:
+#   docker-compose -f docker-compose.build.yml logs -f
+# ============================================================================
+
+services:
+  ucm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    
+    container_name: ucm-build
+
+    restart: unless-stopped
+
+    ports:
+      - "${UCM_HTTPS_PORT:-8443}:8443"
+      - "${UCM_HTTP_PORT:-8080}:8080"
+
+    volumes:
+      # Bind mount data ra ngoài host để dễ kiểm tra và backup
+      - ${UCM_DATA_DIR:-./data}:/opt/ucm/data
+
+    environment:
+      # ── Core ──────────────────────────────────────────────
+      - UCM_FQDN=${UCM_FQDN:-localhost}
+      - UCM_HTTPS_PORT=${UCM_HTTPS_PORT:-8443}
+      - UCM_HTTP_PORT=${UCM_HTTP_PORT:-8080}
+      - UCM_DOCKER=1
+
+      # ── Debug / Logging ───────────────────────────────────
+      - UCM_DEBUG=${UCM_DEBUG:-false}
+      - UCM_LOG_LEVEL=${UCM_LOG_LEVEL:-INFO}
+
+      # ── Security ──────────────────────────────────────────
+      # Tự sinh ngẫu nhiên nếu để trống (khuyến nghị đặt cố định để tránh mất session khi restart)
+      - UCM_SECRET_KEY=${UCM_SECRET_KEY:-}
+      - UCM_JWT_SECRET=${UCM_JWT_SECRET:-}
+      - UCM_SESSION_TIMEOUT=${UCM_SESSION_TIMEOUT:-3600}
+      - UCM_JWT_EXPIRATION=${UCM_JWT_EXPIRATION:-86400}
+
+      # ── Database ──────────────────────────────────────────
+      - UCM_DATABASE_PATH=${UCM_DATABASE_PATH:-/opt/ucm/data/ucm.db}
+      - UCM_BACKUP_ENABLED=${UCM_BACKUP_ENABLED:-true}
+      - UCM_BACKUP_RETENTION_DAYS=${UCM_BACKUP_RETENTION_DAYS:-30}
+
+      # ── Email / SMTP (tuỳ chọn) ───────────────────────────
+      - UCM_SMTP_ENABLED=${UCM_SMTP_ENABLED:-false}
+      - UCM_SMTP_SERVER=${UCM_SMTP_SERVER:-}
+      - UCM_SMTP_PORT=${UCM_SMTP_PORT:-587}
+      - UCM_SMTP_USERNAME=${UCM_SMTP_USERNAME:-}
+      - UCM_SMTP_PASSWORD=${UCM_SMTP_PASSWORD:-}
+      - UCM_SMTP_FROM=${UCM_SMTP_FROM:-noreply@ucm.local}
+      - UCM_SMTP_TLS=${UCM_SMTP_TLS:-true}
+
+      # ── Cache ─────────────────────────────────────────────
+      - UCM_CACHE_ENABLED=${UCM_CACHE_ENABLED:-true}
+      - UCM_CACHE_TYPE=${UCM_CACHE_TYPE:-simple}
+      - UCM_CACHE_DEFAULT_TIMEOUT=${UCM_CACHE_DEFAULT_TIMEOUT:-300}
+
+      # ── mTLS (tuỳ chọn) ───────────────────────────────────
+      - UCM_MTLS_ENABLED=${UCM_MTLS_ENABLED:-false}
+      - UCM_MTLS_CA_ID=${UCM_MTLS_CA_ID:-}
+      - UCM_MTLS_REQUIRE_CERT=${UCM_MTLS_REQUIRE_CERT:-false}
+
+      # ── Certificate defaults ──────────────────────────────
+      - UCM_DEFAULT_VALIDITY_DAYS=${UCM_DEFAULT_VALIDITY_DAYS:-365}
+      - UCM_DEFAULT_KEY_SIZE=${UCM_DEFAULT_KEY_SIZE:-4096}
+      - UCM_DEFAULT_HASH_ALGO=${UCM_DEFAULT_HASH_ALGO:-SHA256}
+
+      # ── ACME / SCEP ───────────────────────────────────────
+      - UCM_ACME_ENABLED=${UCM_ACME_ENABLED:-true}
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:${UCM_HTTPS_PORT:-8443}/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+    networks:
+      - ucm-network
+
+    labels:
+      - "com.ultimate-ca-manager.environment=build"
+      - "com.ultimate-ca-manager.description=Certificate Authority Management (built from source)"
+
+# ============================================================================
+# Networks
+# ============================================================================
+
+networks:
+  ucm-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

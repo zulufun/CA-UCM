@@ -1,6 +1,3 @@
-# Installation Guide
-
-This guide covers all installation methods for Ultimate CA Manager.
 
 ## System Requirements
 
@@ -20,71 +17,8 @@ This guide covers all installation methods for Ultimate CA Manager.
 - **Python:** 3.11+ (for source installation)
 - **Database:** SQLite (included)
 
----
-
 ## Installation Methods
 
-### Method 1: Docker (Recommended)
-
-**Fastest and easiest installation method with automatic updates.**
-
-See: [Docker Installation Guide](docker.md)
-
-```bash
-docker run -d \
-  --name ucm \
-  -p 8443:8443 \
-  -v ucm-data:/opt/ucm/data \
-  neyslim/ultimate-ca-manager:latest
-```
-
-**Access:** https://localhost:8443 or https://your-server-fqdn:8443  
-**Default credentials:** admin / changeme123
-
----
-
-### Method 2: Debian/Ubuntu Package
-
-**Native installation for Debian, Ubuntu, and derivatives.**
-
-```bash
-# Download latest package (replace VERSION with actual version, e.g. 2.1.0)
-wget https://github.com/NeySlim/ultimate-ca-manager/releases/latest/download/ucm_VERSION_all.deb
-
-# Install
-sudo dpkg -i ucm_VERSION_all.deb
-sudo apt-get install -f  # Fix any dependencies
-
-# Enable and start
-sudo systemctl enable ucm
-sudo systemctl start ucm
-sudo systemctl status ucm
-```
-
-**Access:** https://localhost:8443 or https://your-server-fqdn:8443
-
----
-
-### Method 3: RHEL/Rocky/Alma Package
-
-**Native installation for RedHat, Rocky Linux, AlmaLinux, and derivatives.**
-
-```bash
-# Download latest package (replace VERSION with actual version, e.g. 2.1.0)
-wget https://github.com/NeySlim/ultimate-ca-manager/releases/latest/download/ucm-VERSION-1.noarch.rpm
-
-# Install
-sudo dnf install ./ucm-VERSION-1.noarch.rpm
-
-# Enable and start
-sudo systemctl enable ucm
-sudo systemctl start ucm
-sudo systemctl status ucm
-```
-
-**Access:** https://localhost:8443 or https://your-server-fqdn:8443
-
----
 
 ### Method 4: From Source
 
@@ -107,7 +41,6 @@ python wsgi.py
 ```
 
 **Access:** https://localhost:8443 or https://your-server-fqdn:8443
-
 ---
 
 ## First Login
@@ -120,7 +53,7 @@ After installation, access UCM at **https://localhost:8443** (or **https://your-
 
 **IMPORTANT:** Change the default password immediately after first login!
 
----
+
 
 ## Data Locations
 
@@ -153,17 +86,8 @@ After installation:
 5. **Enable ACME/SCEP** (optional) — ACME / SCEP pages
 
 ---
-
 ## Additional Resources
 
 - [Docker Deployment Guide](docker.md)
 - [Upgrade Guide](../../UPGRADE.md)
 - [Redis for HA](../REDIS.md)
-
----
-
-## Support
-
-- **Issues:** [GitHub Issues](https://github.com/NeySlim/ultimate-ca-manager/issues)
-- **Wiki:** [GitHub Wiki](https://github.com/NeySlim/ultimate-ca-manager/wiki)
-- **Discussions:** [GitHub Discussions](https://github.com/NeySlim/ultimate-ca-manager/discussions)

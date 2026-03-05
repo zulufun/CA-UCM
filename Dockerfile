@@ -83,7 +83,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 # Copy entrypoint before switching user
 COPY --chown=ucm:ucm docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Fix potential Windows CRLF line endings and ensure executable
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 # Switch to non-root user
 USER ucm

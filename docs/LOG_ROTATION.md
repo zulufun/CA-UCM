@@ -124,4 +124,3 @@ The logrotate configuration is automatically deployed by the UCM installer to `/
 ---
 
 **Last Updated:** 2026-02-12
-**UCM Version:** 2.x

@@ -43,26 +43,6 @@ docker run -d \
 
 Create `docker-compose.yml`:
 
-```yaml
-version: '3.8'
-
-services:
-  ucm:
-    image: neyslim/ultimate-ca-manager:latest
-    container_name: ucm
-    restart: unless-stopped
-    ports:
-      - "8443:8443"
-    volumes:
-      - ucm-data:/opt/ucm/data
-    environment:
-      - UCM_FQDN=ucm.example.com
-      - UCM_ACME_ENABLED=true
-
-volumes:
-  ucm-data:
-```
-
 **Start:**
 ```bash
 docker-compose up -d
@@ -75,7 +55,7 @@ version: '3.8'
 
 services:
   ucm:
-    image: neyslim/ultimate-ca-manager:latest
+    image: {name of docker images on docker hub}
     container_name: ucm
     restart: unless-stopped
 

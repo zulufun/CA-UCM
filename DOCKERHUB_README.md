@@ -1,52 +1,12 @@
-# Ultimate CA Manager
-
-![Version](https://img.shields.io/github/v/release/NeySlim/ultimate-ca-manager?label=version&color=brightgreen)
-![Docker](https://img.shields.io/badge/docker-multi--arch-blue.svg)
-
 **Web-based Certificate Authority management with PKI protocol support.**
 
 UCM provides certificate lifecycle management, CA hierarchy, and industry-standard protocols (SCEP, OCSP, ACME, CRL/CDP) with multi-factor authentication.
 
 **Multi-arch:** `linux/amd64`, `linux/arm64`
 
-![Dashboard](https://raw.githubusercontent.com/NeySlim/ultimate-ca-manager/main/docs/screenshots/dashboard-dark.png)
-
----
-
-## Quick Start
-
-```bash
-docker run -d \
-  --name ucm \
-  -p 8443:8443 \
-  -v ucm-data:/opt/ucm/data \
-  --restart unless-stopped \
-  neyslim/ultimate-ca-manager:latest
-```
 
 **Access:** https://localhost:8443
 **Credentials:** admin / changeme123 -- change immediately.
-
-### Docker Compose
-
-```yaml
-services:
-  ucm:
-    image: neyslim/ultimate-ca-manager:latest
-    container_name: ucm
-    ports:
-      - "8443:8443"
-    volumes:
-      - ucm-data:/opt/ucm/data
-    environment:
-      - UCM_FQDN=ucm.example.com
-    restart: unless-stopped
-
-volumes:
-  ucm-data:
-```
-
----
 
 ## Features
 
@@ -160,9 +120,3 @@ docker run --rm -v ucm-data:/data -v $(pwd):/backup \
 - [Wiki](https://github.com/NeySlim/ultimate-ca-manager/wiki)
 - [CHANGELOG](https://github.com/NeySlim/ultimate-ca-manager/blob/main/CHANGELOG.md)
 - [Issues](https://github.com/NeySlim/ultimate-ca-manager/issues)
-
----
-
-## License
-
-BSD 3-Clause License

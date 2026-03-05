@@ -6,9 +6,7 @@
 > **Total Endpoints**: 347  
 > **Test Coverage**: 1364 tests (~95% route coverage)  
 > **Note**: All endpoints are served from `api/v2/` (34 registered blueprints). There is no separate `features/` module.
-
 ---
-
 ## Table of Contents
 
 1. [Authentication](#authentication)
