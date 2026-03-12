@@ -1,5 +1,5 @@
 # ============================================================================
-# UCM v2.0.4 - Docker Compose Development Configuration
+# UCM - Docker Compose Development Configuration
 # ============================================================================
 # Development setup with hot-reload, debugging, and verbose logging
 # 
@@ -13,8 +13,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: development  # Use development stage if multi-stage
-    
+      target: development
+
+    image: ca-manager:dev
+    container_name: ucm-dev
+
     # Mount source code for hot-reload
     volumes:
       - ./backend:/app/backend:rw
@@ -102,19 +105,4 @@ services:
   #     - "6379:6379"
   #   
   #   networks:
-  #     - ucm-network
-# ============================================================================
-# Volumes
-# ============================================================================
-
-volumes:
-  ucm-data:
-    driver: local
-
-# ============================================================================
-# Networks
-# ============================================================================
-
-networks:
-  ucm-network:
-    driver: bridge
+  #     - ucm-networkx

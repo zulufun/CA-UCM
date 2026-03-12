@@ -89,24 +89,6 @@ sudo cp /etc/ucm/ucm.env ~/ucm-config-backup.env
 sudo systemctl start ucm
 ```
 
-### Hoàn tác
-
-```bash
-sudo systemctl stop ucm
-
-# Khôi phục database
-sudo cp /opt/ucm/data/backups/ucm-pre-upgrade-*.db /opt/ucm/data/ucm.db
-
-# Cài đặt lại phiên bản trước
-sudo dpkg -i ucm_<phiên-bản-trước>_all.deb
-
-sudo systemctl start ucm
-```
-
----
-
-## Nâng cấp Gói RPM
-
 ### Dùng DNF/YUM
 
 ```bash
@@ -123,9 +105,6 @@ sudo dnf upgrade ./ucm-VERSION-1.noarch.rpm
 sudo systemctl stop ucm
 sudo cp /opt/ucm/data/ucm.db ~/ucm-backup-$(date +%Y%m%d).db
 sudo systemctl start ucm
-```
-
----
 
 ## Nâng cấp Cài đặt từ Nguồn
 
@@ -153,41 +132,10 @@ sudo systemctl start ucm
 
 Các migration database chạy tự động khi khởi động.
 
----
-
-## Lưu ý Theo Phiên bản
-
-### Nâng cấp lên v2.48 từ v2.1.x
-
-**Không có thay đổi phá vỡ tương thích** — có thể nâng cấp trực tiếp.
-
-> **Lưu ý:** UCM chuyển từ Semantic Versioning (2.1.x) sang định dạng Major.Build (2.48) từ bản phát hành này. Bước nhảy phiên bản từ 2.1.x lên 2.48 là có chủ ý và bình thường.
-
-**Mới trong v2.48:**
-- Bộ test backend toàn diện (1364 test, ~95% độ phủ route)
-- Hệ thống ucm-watcher để khởi động lại dịch vụ an toàn và tự cập nhật
-- Huy hiệu thử nghiệm cho các tính năng chưa kiểm tra (mTLS, HSM, SSO)
-- Luồng đăng nhập 2FA TOTP với thiết lập QR code
-- Cơ chế tự cập nhật qua GitHub releases
-
-**Tự cập nhật (DEB/RPM):**
-UCM hiện có thể kiểm tra và cài đặt cập nhật tự động. Dịch vụ systemd ucm-watcher theo dõi các signal file:
-- `/opt/ucm/data/.restart_requested` — kích hoạt khởi động lại dịch vụ
-- `/opt/ucm/data/.update_pending` — kích hoạt cài đặt gói + khởi động lại
-
-Không cần thao tác thủ công — các cập nhật được kích hoạt từ trang Settings > System.
 
 ### Nâng cấp lên v2.1.0 từ v2.0.x
 
 **Không có thay đổi phá vỡ tương thích** — có thể nâng cấp trực tiếp.
-
-**Tính năng mới:**
-- Khớp chuỗi chứng chỉ dựa trên AKI/SKI (migration tự động khi khởi động)
-- Scheduler sửa chuỗi (task nền hàng giờ)
-- Widget sửa chuỗi trên trang CAs
-- Loại trùng lặp trong Smart Import (ngăn CA trùng lặp)
-- Giao diện quản lý Webhook
-- i18n 9 ngôn ngữ
 
 **Migration tự động:**
 - Khi khởi động lần đầu, UCM điền các trường SKI/AKI cho tất cả CA và chứng chỉ hiện có

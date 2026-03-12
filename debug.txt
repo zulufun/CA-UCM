@@ -1,0 +1,2 @@
+docker exec ucm rm /opt/ucm/data/https_cert.pem /opt/ucm/data/https_key.pem ; docker-compose -f .\docker-compose.yml restart
+docker logs ucm 2>&1 | Select-String "certif|Self-signed|Generating|HTTPS

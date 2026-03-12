@@ -180,8 +180,8 @@ class CertificateService:
             subject=cert.subject.rfc4514_string(),
             issuer=cert.issuer.rfc4514_string(),
             serial_number=str(cert.serial_number),
-            valid_from=cert.not_valid_before,
-            valid_to=cert.not_valid_after,
+            valid_from=cert.not_valid_before_utc,
+            valid_to=cert.not_valid_after_utc,
             # SANs
             san_dns=json.dumps(san_dns) if san_dns else None,
             san_ip=json.dumps(san_ip) if san_ip else None,
@@ -402,8 +402,8 @@ class CertificateService:
         certificate.subject_cn = cn_value
         certificate.issuer = cert.issuer.rfc4514_string()
         certificate.serial_number = str(cert.serial_number)
-        certificate.valid_from = cert.not_valid_before
-        certificate.valid_to = cert.not_valid_after
+        certificate.valid_from = cert.not_valid_before_utc
+        certificate.valid_to = cert.not_valid_after_utc
         
         # Store SANs
         if san_dns_list:
@@ -510,8 +510,8 @@ class CertificateService:
             subject_cn=subject_cn,
             issuer=cert.issuer.rfc4514_string(),
             serial_number=str(cert.serial_number),
-            valid_from=cert.not_valid_before,
-            valid_to=cert.not_valid_after,
+            valid_from=cert.not_valid_before_utc,
+            valid_to=cert.not_valid_after_utc,
             key_algo=key_algo,
             # Store extracted SANs
             san_dns=json.dumps(san_dns_list) if san_dns_list else None,

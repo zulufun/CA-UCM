@@ -19,6 +19,7 @@ services:
       context: .
       dockerfile: Dockerfile
     
+    image: ca-build:v1.0
     container_name: ucm-build
 
     restart: unless-stopped

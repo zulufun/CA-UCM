@@ -109,14 +109,4 @@ scp ucm-data.tar.gz user@new-host:~/
 docker volume create ucm-data
 docker run --rm -v ucm-data:/data -v $(pwd):/backup \
   alpine tar xzf /backup/ucm-data.tar.gz -C /data
-# Then start container as usual
-```
 
----
-
-## Documentation
-
-- [README](https://github.com/NeySlim/ultimate-ca-manager)
-- [Wiki](https://github.com/NeySlim/ultimate-ca-manager/wiki)
-- [CHANGELOG](https://github.com/NeySlim/ultimate-ca-manager/blob/main/CHANGELOG.md)
-- [Issues](https://github.com/NeySlim/ultimate-ca-manager/issues)

@@ -1,5 +1,5 @@
 # ============================================================================
-# UCM v2.0.4 - Docker Compose Production Configuration
+# UCM - Docker Compose Production Configuration
 # ============================================================================
 # Production-ready setup with security hardening and performance optimization
 # 
@@ -10,7 +10,7 @@
 
 services:
   ucm:
-    image: neyslim/ultimate-ca-manager:latest  # Use pre-built image
+    image: ca-build:v1.0
     
     # Production environment overrides
     environment:

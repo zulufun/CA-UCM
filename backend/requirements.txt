@@ -40,6 +40,10 @@ psutil==7.2.1
 # Password Hashing
 bcrypt==5.0.0
 
+# MFA/TOTP Support
+pyotp>=2.9.0
+qrcode[pil]>=8.0
+
 # Production Server
 gunicorn==23.0.0
 

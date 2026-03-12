@@ -24,12 +24,20 @@ connected_clients: Dict[str, Dict[str, Any]] = {}
 
 def init_websocket(app):
     """Initialize WebSocket with Flask app."""
+    import sys
     # Use CORS origins from app config (don't allow "*")
     cors_origins = app.config.get('CORS_ORIGINS', ["https://localhost:8443"])
+    # Use gevent only when running under gunicorn; werkzeug dev server requires threading
+    running_under_gunicorn = 'gunicorn' in sys.modules
+    async_mode = 'gevent' if running_under_gunicorn else 'threading'
+    # Werkzeug has no native WebSocket support — disable upgrade so socket.io
+    # stays on HTTP long-polling (harmless, client handles it transparently)
+    allow_upgrades = running_under_gunicorn
     socketio.init_app(
         app,
         cors_allowed_origins=cors_origins,
-        async_mode='gevent',
+        async_mode=async_mode,
+        allow_upgrades=allow_upgrades,
         manage_session=False,
         logger=True,
         engineio_logger=False,

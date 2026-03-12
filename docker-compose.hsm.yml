@@ -7,7 +7,7 @@
 
 services:
   ucm:
-    image: neyslim/ultimate-ca-manager:latest
+    image: ca-build:v1.0
     container_name: ucm-hsm
     restart: unless-stopped
     ports:

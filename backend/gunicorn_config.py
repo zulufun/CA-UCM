@@ -6,6 +6,19 @@
 from gevent import monkey
 monkey.patch_all()
 
+# Suppress gevent + Python 3.12 threading cleanup bug:
+# When monkey-patched Timer/Thread finishes, _delete() tries to remove
+# the greenlet ident from threading._active, but it was never registered
+# there under that ident, raising a spurious KeyError.
+import threading as _threading
+_orig_thread_delete = _threading.Thread._delete
+def _safe_thread_delete(self):
+    try:
+        _orig_thread_delete(self)
+    except KeyError:
+        pass
+_threading.Thread._delete = _safe_thread_delete
+
 import os
 import sys
 
@@ -217,6 +230,14 @@ def post_worker_init(worker):
         if type and issubclass(type, (ssl.SSLError, ConnectionResetError, BrokenPipeError, OSError)):
             worker.log.debug("Connection error suppressed: %s", value)
             return
+        # Suppress gevent internal AssertionError from _notify_links
+        # (gevent bug on Python 3.12+ where a None appears in the link list)
+        if type is AssertionError and tb is not None:
+            import traceback as _tb_mod
+            frames = _tb_mod.extract_tb(tb)
+            if any('_abstract_linkable' in f.filename or '_notify_links' in (f.name or '') for f in frames):
+                worker.log.debug("Gevent _notify_links assertion suppressed: %s", value)
+                return
         _original_handle_error(context, type, value, tb)
 
     hub.handle_error = _quiet_handle_error

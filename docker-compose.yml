@@ -1,7 +1,7 @@
 
 services:
   ucm:
-    image: neyslim/ultimate-ca-manager:latest
+    image: ca-build:v1.0
     container_name: ucm
     restart: unless-stopped
     
@@ -26,7 +26,7 @@ services:
       # ========================================
       
       # FQDN - CRITICAL for Docker (hostname detection doesn't work)
-      - UCM_FQDN=${UCM_FQDN:-ucm.local}
+      - UCM_FQDN=${UCM_FQDN:-localhost}
       
       # Ports
       - UCM_HTTPS_PORT=${UCM_HTTPS_PORT:-8443}

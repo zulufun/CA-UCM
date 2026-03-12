@@ -750,8 +750,8 @@ class TrustStoreService:
             'subject': {},
             'issuer': {},
             'validity': {
-                'not_before': cert.not_valid_before.isoformat(),
-                'not_after': cert.not_valid_after.isoformat()
+                'not_before': cert.not_valid_before_utc.isoformat(),
+                'not_after': cert.not_valid_after_utc.isoformat()
             },
             'extensions': {},
             'public_key': {}
