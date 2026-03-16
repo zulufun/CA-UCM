@@ -1,2 +1,15 @@
 docker exec ucm rm /opt/ucm/data/https_cert.pem /opt/ucm/data/https_key.pem ; docker-compose -f .\docker-compose.yml restart
 docker logs ucm 2>&1 | Select-String "certif|Self-signed|Generating|HTTPS
+
+
+Khắc phục lỗi docker
+
+docker-compose -f docker-compose.build.yml config
+docker-compose -f docker-compose.build.yml up --build 2>&1 | head -60
+docker build -t ca-build:v1.0 . 2>&1
+docker logs ucm-build --tail 50
+docker logs ucm-build -f   # follow real-time
+docker inspect ucm-build | grep -A5 "Health"
+docker inspect ucm-build | grep -A3 "Status"
+
+docker-compose -f docker-compose.build.yml up -d --build --force-recreate
