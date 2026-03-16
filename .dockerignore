@@ -98,3 +98,4 @@ docker-compose*.yml
 
 # Keep .env.example for container initialization
 !.env.example
+!.env.docker.example

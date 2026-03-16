@@ -18,7 +18,6 @@ from cryptography.hazmat.backends import default_backend
 from models import db, User, CA, Certificate, SystemConfig
 from models.acme_models import AcmeAccount
 from models.webauthn import WebAuthnCredential
-from config.settings import Config
 
 
 class BackupService:
@@ -29,9 +28,6 @@ class BackupService:
     KEY_SIZE = 32  # 256 bits for AES-256
     NONCE_SIZE = 12  # 96 bits for GCM
     SALT_SIZE = 32
-    
-    def __init__(self):
-        self.app_version = Config.APP_VERSION
     
     def create_backup(
         self, 
@@ -189,7 +185,6 @@ class BackupService:
         """Generate backup metadata"""
         return {
             'version': '1.0',
-            'ucm_version': self.app_version,
             'database_type': 'sqlite',  # TODO: detect from config
             'created_at': datetime.utcnow().isoformat() + 'Z',
             'hostname': os.environ.get('FQDN', 'unknown'),

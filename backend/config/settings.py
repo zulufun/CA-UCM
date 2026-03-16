@@ -93,20 +93,6 @@ class Config:
     # Application
     APP_NAME = os.getenv("APP_NAME", "Ultimate CA Manager")
     
-    # Version - single source of truth: VERSION file at repo/install root
-    @staticmethod
-    def _get_version():
-        """Read version from VERSION file at project root"""
-        try:
-            version_path = BASE_DIR / "VERSION"
-            if version_path.exists():
-                return version_path.read_text().strip()
-        except Exception:
-            pass
-        return os.getenv("APP_VERSION", "unknown")
-    
-    APP_VERSION = _get_version.__func__()
-    
     # SECRET_KEY validation - deferred to runtime
     _secret_key = os.getenv("SECRET_KEY")
     

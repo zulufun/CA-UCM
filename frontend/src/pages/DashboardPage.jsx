@@ -163,8 +163,6 @@ export default function DashboardPage() {
   const trendDaysRef = useRef(7)
   const [loading, setLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState(new Date())
-  const [versionInfo, setVersionInfo] = useState({ version: '2.0.0', update_available: false })
-  
   // Widget + layout customization
   const [widgets, setWidgets] = useState(loadWidgetPrefs)
   const [showWidgetSettings, setShowWidgetSettings] = useState(false)
@@ -303,20 +301,6 @@ export default function DashboardPage() {
     return () => { cancelled = true }
   }, [trendDays])
 
-  // Load version info
-  useEffect(() => {
-    const loadVersion = async () => {
-      try {
-        const response = await fetch('/api/v2/system/updates/version')
-        if (response.ok) {
-          const data = await response.json()
-          setVersionInfo(data.data || { version: '2.0.0', update_available: false })
-        }
-      } catch {}
-    }
-    loadVersion()
-  }, [])
-
   // Subscribe to PKI events for auto-refresh
   useEffect(() => {
     if (!isConnected) return
@@ -416,10 +400,6 @@ export default function DashboardPage() {
                 <div className="flex items-baseline gap-2">
                   <span className="hidden md:inline text-lg font-black tracking-tight logo-text-gradient">TTDL BQP Miền Bắc</span>
                   <span className="md:hidden text-sm font-black tracking-tight logo-text-gradient opacity-50">TTDL BQP Miền Bắc</span>
-                  <span className="text-xs text-text-tertiary">v{versionInfo.version}</span>
-                  {versionInfo.update_available && (
-                    <Badge variant="warning" size="sm" dot>{t('common.updateAvailable')}</Badge>
-                  )}
                 </div>
                 <p className="text-xs text-text-tertiary mt-0.5 hidden md:block">Dashboard quản lý chứng chỉ chung</p>
               </div>

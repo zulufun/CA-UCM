@@ -263,7 +263,7 @@ def directory():
     # Add metadata
     directory_data['meta'] = {
         'termsOfService': f'{service.base_url}/acme/terms',
-        'website': 'https://github.com/fabriziosalmi/ultimate-ca-manager',
+        'website': service.base_url,
         'caaIdentities': [request.host],
         'externalAccountRequired': False
     }
@@ -773,7 +773,6 @@ def health():
     return jsonify({
         "status": "healthy",
         "service": "ACME Server",
-        "version": Config.APP_VERSION,
         "timestamp": datetime.utcnow().isoformat() + 'Z'
     })
 

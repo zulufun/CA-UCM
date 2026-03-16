@@ -8,9 +8,9 @@ import { useSearchParams } from 'react-router-dom'
 import { 
   Gear, EnvelopeSimple, ShieldCheck, Database, ListBullets, FloppyDisk, 
   Envelope, Download, Trash, HardDrives, Lock, Key, Palette, Sun, Moon, Desktop, Info,
-  Timer, Clock, WarningCircle, UploadSimple, Certificate, Eye, ArrowsClockwise, Rocket,
+  Timer, Clock, WarningCircle, UploadSimple, Certificate, Eye, ArrowsClockwise,
   Plus, PencilSimple, TestTube, Lightning, Globe, Shield, CheckCircle, XCircle, MagnifyingGlass,
-  Bell, Copy, Power, ArrowClockwise, LockKey, Warning, User, GithubLogo,
+  Bell, Copy, Power, ArrowClockwise, LockKey, Warning, User,
   Plugs, UsersThree, UserPlus, TreeStructure, CaretDown, Play
 } from '@phosphor-icons/react'
 import {
@@ -19,7 +19,7 @@ import {
   LoadingSpinner, FileUpload, Modal, HelpCard, Logo, ExperimentalBadge,
   DetailHeader, DetailSection, DetailGrid, DetailField, DetailContent,
   CompactSection,
-  UpdateChecker, ServiceReconnectOverlay
+  ServiceReconnectOverlay
 } from '../components'
 import { SmartImportModal } from '../components/SmartImport'
 import LanguageSelector from '../components/ui/LanguageSelector'
@@ -45,7 +45,6 @@ const BASE_SETTINGS_CATEGORIES = [
   { id: 'audit', labelKey: 'settings.tabs.audit', icon: ListBullets, color: 'icon-bg-orange' },
   { id: 'database', labelKey: 'settings.tabs.database', icon: HardDrives, color: 'icon-bg-teal' },
   { id: 'https', labelKey: 'settings.tabs.https', icon: Lock, color: 'icon-bg-emerald' },
-  { id: 'updates', labelKey: 'settings.tabs.updates', icon: Rocket, color: 'icon-bg-violet' },
   { id: 'webhooks', labelKey: 'settings.tabs.webhooks', icon: Bell, color: 'icon-bg-rose' },
   { id: 'about', labelKey: 'settings.tabs.about', icon: Info, color: 'icon-bg-sky' },
 ]
@@ -123,7 +122,6 @@ function ServiceStatusWidget() {
       ) : status ? (
         <div className="space-y-3">
           <DetailGrid columns={2}>
-            <DetailField label={t('settings.version')} value={`v${status.version}`} />
             <DetailField label="PID" value={status.pid} />
             <DetailField label={t('settings.uptime')} value={formatUptime(status.uptime_seconds)} />
             <DetailField label={t('settings.memory')} value={`${status.memory_mb} MB`} />
@@ -190,17 +188,11 @@ function AboutSection() {
       {/* Logo & branding */}
       <div className="flex flex-col items-center py-6 mb-4">
         <Logo variant="vertical" size="lg" />
-        <div className="mt-3">
-          <Badge variant="accent" size="sm">
-            {loading ? '...' : `v${info?.version || __APP_VERSION__}`}
-          </Badge>
-        </div>
       </div>
 
       {/* System info */}
       <DetailSection title={t('settings.about.systemInfo')} icon={HardDrives} iconClass="icon-bg-teal">
         <DetailGrid>
-          <DetailField label={t('settings.about.version')} value={info?.version || '—'} />
           <DetailField label={t('settings.about.pythonVersion')} value={info?.python_version || '—'} />
           <DetailField label={t('settings.about.uptime')} value={formatUptime(info?.uptime_seconds)} />
           <DetailField label={t('settings.about.memory')} value={info?.memory_mb ? `${info.memory_mb} MB` : '—'} />
@@ -211,42 +203,13 @@ function AboutSection() {
       {/* Links */}
       <DetailSection title={t('settings.about.links')} icon={Globe} iconClass="icon-bg-teal" className="mt-4">
         <div className="space-y-2">
-          <a
-            href="https://github.com/NeySlim/ultimate-ca-manager"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-3 p-3 bg-tertiary-50 border border-border rounded-lg hover:bg-bg-tertiary transition-colors"
-          >
-            <GithubLogo size={20} className="text-text-secondary" />
-            <div>
-              <div className="text-sm font-medium text-text-primary">GitHub</div>
-              <div className="text-xs text-text-secondary">{t('settings.about.sourceCode')}</div>
-            </div>
-          </a>
-          <a
-            href="https://github.com/NeySlim/ultimate-ca-manager/issues"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-3 p-3 bg-tertiary-50 border border-border rounded-lg hover:bg-bg-tertiary transition-colors"
-          >
-            <WarningCircle size={20} className="text-text-secondary" />
-            <div>
-              <div className="text-sm font-medium text-text-primary">{t('settings.about.issues')}</div>
-              <div className="text-xs text-text-secondary">{t('settings.about.reportBugs')}</div>
-            </div>
-          </a>
-          <a
-            href="https://github.com/NeySlim/ultimate-ca-manager/wiki"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-3 p-3 bg-tertiary-50 border border-border rounded-lg hover:bg-bg-tertiary transition-colors"
-          >
+          <div className="flex items-center gap-3 p-3 bg-tertiary-50 border border-border rounded-lg">
             <Globe size={20} className="text-text-secondary" />
             <div>
               <div className="text-sm font-medium text-text-primary">{t('settings.about.documentation')}</div>
               <div className="text-xs text-text-secondary">{t('settings.about.wikiGuides')}</div>
             </div>
-          </a>
+          </div>
         </div>
       </DetailSection>
 
@@ -681,14 +644,6 @@ function SsoProviderForm({ provider, forcedType, onSave, onCancel }) {
         oauth2_userinfo_url: 'https://openidconnect.googleapis.com/v1/userinfo',
         oauth2_scopes: 'openid profile email',
       }))
-    } else if (preset === 'github') {
-      setFormData(prev => ({
-        ...prev,
-        oauth2_auth_url: 'https://github.com/login/oauth/authorize',
-        oauth2_token_url: 'https://github.com/login/oauth/access_token',
-        oauth2_userinfo_url: 'https://api.github.com/user',
-        oauth2_scopes: 'read:user user:email',
-      }))
     }
   }
 
@@ -1013,7 +968,6 @@ function SsoProviderForm({ provider, forcedType, onSave, onCancel }) {
                   { id: 'custom', label: t('sso.oauth2PresetCustom') },
                   { id: 'azure', label: '🟦 Microsoft Entra' },
                   { id: 'google', label: '🔵 Google' },
-                  { id: 'github', label: '⚫ GitHub' },
                 ].map(preset => (
                   <button
                     key={preset.id}
@@ -2801,7 +2755,7 @@ export default function SettingsPage() {
                 {/* One card per provider type */}
                 {[
                   { type: 'ldap', label: t('sso.ldap'), icon: Database, color: 'icon-bg-blue', desc: 'Active Directory, OpenLDAP' },
-                  { type: 'oauth2', label: t('sso.oauth2'), icon: Globe, color: 'icon-bg-teal', desc: 'Azure AD, Google, GitHub, OIDC' },
+                  { type: 'oauth2', label: t('sso.oauth2'), icon: Globe, color: 'icon-bg-teal', desc: 'Azure AD, Google, OIDC' },
                   { type: 'saml', label: t('sso.saml'), icon: Shield, color: 'icon-bg-violet', desc: 'Okta, ADFS, Keycloak' },
                 ].map(({ type, label, icon: Icon, color, desc }) => {
                   const provider = ssoProviders.find(p => p.provider_type === type)
@@ -3286,18 +3240,6 @@ export default function SettingsPage() {
                 </Button>
               </div>
             </DetailSection>
-          </DetailContent>
-        )
-
-      case 'updates':
-        return (
-          <DetailContent>
-            <DetailHeader
-              icon={Rocket}
-              title={t('settings.updatesTitle')}
-              subtitle={t('settings.updatesSubtitle')}
-            />
-            <UpdateChecker />
           </DetailContent>
         )
 

@@ -1222,41 +1222,6 @@ def get_security_anomalies():
         return error_response(f"Failed to get anomalies: {str(e)}", 500)
 
 
-# ============================================================================
-# UPDATE MANAGEMENT
-# ============================================================================
-
-@bp.route('/api/v2/system/updates/check', methods=['GET'])
-@require_auth(['admin:system'])
-def check_updates():
-    """Update check disabled"""
-    from services.updates import get_current_version
-    return success_response(data={
-        'update_available': False,
-        'current_version': get_current_version(),
-        'latest_version': get_current_version(),
-        'can_auto_update': False,
-        'message': 'Update check is disabled.'
-    })
-
-
-@bp.route('/api/v2/system/updates/install', methods=['POST'])
-@require_auth(['admin:system'])
-def install_update():
-    """Auto-update disabled"""
-    return error_response("Auto-update feature is disabled.", 400)
-
-
-@bp.route('/api/v2/system/updates/version', methods=['GET'])
-def get_version():
-    """Get current version info (public endpoint)"""
-    from services.updates import get_current_version
-    
-    return success_response(data={
-        'version': get_current_version()
-    })
-
-
 @bp.route('/api/v2/system/hsm-status', methods=['GET'])
 @require_auth(['read:settings'])
 def get_hsm_status():
@@ -1307,9 +1272,8 @@ def run_chain_repair():
 @bp.route('/api/v2/system/service/status', methods=['GET'])
 @require_auth(['read:settings'])
 def get_service_status():
-    """Get UCM service status: version, uptime, PID, memory"""
+    """Get UCM service status: uptime, PID, memory"""
     import psutil
-    from services.updates import get_current_version
     
     try:
         proc = psutil.Process(os.getpid())
@@ -1328,7 +1292,6 @@ def get_service_status():
         is_docker = os.path.exists('/.dockerenv') or os.path.exists('/run/.containerenv')
         
         return success_response(data={
-            'version': get_current_version(),
             'pid': main_proc.pid,
             'uptime_seconds': uptime_seconds,
             'started_at': create_time.isoformat(),

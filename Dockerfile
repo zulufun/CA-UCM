@@ -57,7 +57,6 @@ RUN chown ucm:ucm /app
 
 # Copy application files
 # Copy application files with proper ownership
-COPY --chown=ucm:ucm VERSION /app/VERSION
 COPY --chown=ucm:ucm backend/ /app/backend/
 COPY --chown=ucm:ucm frontend/ /app/frontend/
 COPY --chown=ucm:ucm wsgi.py /app/wsgi.py

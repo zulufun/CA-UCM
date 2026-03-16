@@ -52,7 +52,6 @@ def ensure_system_config_defaults(app):
     
     defaults = [
         ('app.initialized', 'true', 'Application initialized'),
-        ('app.version', Config.APP_VERSION, 'Application version'),
         ('https.enabled', 'true', 'HTTPS enforcement enabled'),
     ]
     
@@ -60,10 +59,6 @@ def ensure_system_config_defaults(app):
         # Check if config already exists (read-only check first)
         config = SystemConfig.query.filter_by(key=key).first()
         if config:
-            # Always sync app.version from VERSION file
-            if key == 'app.version' and config.value != value:
-                config.value = value
-                db.session.commit()
             continue  # Already exists, skip
             
         # Try to create it in isolated transaction

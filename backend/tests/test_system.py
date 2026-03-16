@@ -86,9 +86,6 @@ class TestSystemAuthRequired:
         ('GET',  '/api/v2/system/alerts/expiry'),
         ('PUT',  '/api/v2/system/alerts/expiry'),
         ('POST', '/api/v2/system/alerts/expiry/check'),
-        # Updates
-        ('GET',  '/api/v2/system/updates/check'),
-        ('POST', '/api/v2/system/updates/install'),
         # Misc
         ('GET',  '/api/v2/system/hsm-status'),
         ('GET',  '/api/v2/system/chain-repair'),
@@ -107,15 +104,6 @@ class TestSystemAuthRequired:
         elif method == 'DELETE':
             r = client.delete(path)
         assert r.status_code == 401, f'{method} {path} should require auth, got {r.status_code}'
-
-    def test_version_is_public(self, client):
-        """GET /system/updates/version is a public endpoint (no auth)."""
-        r = client.get('/api/v2/system/updates/version')
-        assert r.status_code == 200
-        data = get_json(r)
-        assert 'data' in data
-        assert 'version' in data['data']
-
 
 # ============================================================
 # Database Endpoints
@@ -706,53 +694,6 @@ class TestExpiryAlertCheck:
         data = get_json(r)
         assert 'message' in data or 'error' in data
 
-
-# ============================================================
-# Updates
-# ============================================================
-
-class TestUpdatesVersion:
-    """GET /system/updates/version — public endpoint."""
-
-    def test_returns_200_without_auth(self, client):
-        r = client.get('/api/v2/system/updates/version')
-        assert r.status_code == 200
-
-    def test_returns_version_string(self, client):
-        r = client.get('/api/v2/system/updates/version')
-        data = get_json(r)
-        version = data.get('data', {}).get('version', '')
-        assert isinstance(version, str)
-        assert len(version) > 0
-
-    def test_version_looks_like_semver(self, client):
-        r = client.get('/api/v2/system/updates/version')
-        data = get_json(r)
-        version = data.get('data', {}).get('version', '')
-        # Should contain at least one dot (e.g., "1.0" or "1.0.0")
-        assert '.' in version
-
-
-class TestUpdatesCheck:
-    """GET /system/updates/check"""
-
-    def test_returns_response(self, auth_client):
-        """May fail without internet — accept 200 or 500."""
-        r = auth_client.get('/api/v2/system/updates/check')
-        assert r.status_code in (200, 500)
-
-
-class TestUpdatesInstall:
-    """POST /system/updates/install — DANGEROUS."""
-
-    def test_auth_required(self, client):
-        r = client.post('/api/v2/system/updates/install',
-                        data=json.dumps({}),
-                        content_type='application/json')
-        assert r.status_code == 401
-
-
-# ============================================================
 # HSM Status
 # ============================================================
 

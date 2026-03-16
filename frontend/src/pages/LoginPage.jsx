@@ -12,7 +12,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
-import { ShieldCheck, Fingerprint, Key, User, ArrowRight, ArrowLeft, GithubLogo, Palette, Globe, SignIn, Lock, EnvelopeSimple, Phone } from '@phosphor-icons/react'
+import { ShieldCheck, Fingerprint, Key, User, ArrowRight, ArrowLeft, Palette, Globe, SignIn, Lock, EnvelopeSimple, Phone } from '@phosphor-icons/react'
 import { Card, Button, Input, Logo, LoadingSpinner } from '../components'
 import { languages } from '../i18n'
 import { useAuth, useNotification } from '../contexts'

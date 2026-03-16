@@ -168,10 +168,9 @@ def create_app(config_name=None):
         "info": {
             "title": "UCM API v2.0",
             "description": "Ultimate Certificate Manager - REST API Documentation",
-            "version": config.APP_VERSION,
             "contact": {
                 "name": "UCM Support",
-                "url": "https://github.com/your-org/ucm"
+                "url": ""
             }
         },
         "basePath": "/api/v2",
@@ -803,8 +802,6 @@ def init_database(app):
             configs = [
                 SystemConfig(key="app.initialized", value="true", 
                             description="Application initialized"),
-                SystemConfig(key="app.version", value=app.config["APP_VERSION"],
-                            description="Application version"),
                 SystemConfig(key="https.enabled", value="true",
                             description="HTTPS enforcement enabled"),
             ]
@@ -1263,7 +1260,7 @@ def main():
                         ca_cert_path = None
     
     print(f"\n{'='*60}")
-    print(f"  {config.APP_NAME} v{config.APP_VERSION}")
+    print(f"  {config.APP_NAME}")
     print(f"{'='*60}")
     print(f"  HTTPS Server: https://{config.HOST}:{config.HTTPS_PORT}")
     print(f"  Certificate: {config.HTTPS_CERT_PATH}")

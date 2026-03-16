@@ -35,7 +35,6 @@ def health():
     result = {
         'status': 'ok',
         'service': 'ucm',
-        'version': _config.APP_VERSION,
         'started_at': _started_at,
         'websocket': ws_ready
     }
