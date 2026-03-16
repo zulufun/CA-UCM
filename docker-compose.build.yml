@@ -26,7 +26,7 @@ services:
 
     ports:
       - "${UCM_HTTPS_PORT:-8443}:8443"
-      - "${UCM_HTTP_PORT:-8080}:8080"
+      - "${UCM_HTTP_PORT:-8081}:8080"
 
     volumes:
       # Bind mount data ra ngoài host để dễ kiểm tra và backup
@@ -36,7 +36,7 @@ services:
       # ── Core ──────────────────────────────────────────────
       - UCM_FQDN=${UCM_FQDN:-localhost}
       - UCM_HTTPS_PORT=${UCM_HTTPS_PORT:-8443}
-      - UCM_HTTP_PORT=${UCM_HTTP_PORT:-8080}
+      - UCM_HTTP_PORT=${UCM_HTTP_PORT:-8081}
       - UCM_DOCKER=1
 
       # ── Debug / Logging ───────────────────────────────────
@@ -89,8 +89,6 @@ services:
       retries: 5
       start_period: 60s
 
-    security_opt:
-      - no-new-privileges:true
     cap_drop:
       - ALL
     cap_add:
