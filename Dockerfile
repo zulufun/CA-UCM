@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     openssl \
     softhsm2 \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
@@ -80,13 +81,10 @@ EXPOSE 8443
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f -k https://127.0.0.1:8443/health || exit 1
 
-# Copy entrypoint before switching user
-COPY --chown=ucm:ucm docker/entrypoint.sh /entrypoint.sh
+# Copy entrypoint (runs as root to fix permissions, then drops to ucm via gosu)
+COPY docker/entrypoint.sh /entrypoint.sh
 # Fix potential Windows CRLF line endings and ensure executable
 RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
-
-# Switch to non-root user
-USER ucm
 
 # Set entrypoint
 ENTRYPOINT ["/entrypoint.sh"]

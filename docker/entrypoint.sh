@@ -15,9 +15,13 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+# Read version from VERSION file (single source of truth)
+UCM_VERSION=$(cat /app/VERSION 2>/dev/null || echo "unknown")
+
 # Banner
 echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║  Ultimate CA Manager - Docker         ║${NC}"
+echo -e "${GREEN}║  Version ${UCM_VERSION}$(printf '%*s' $((25 - ${#UCM_VERSION})) '')║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -112,6 +116,9 @@ validate_email() {
 : ${UCM_INITIAL_ADMIN_EMAIL:="admin@${UCM_FQDN}"}
 : ${UCM_INITIAL_ADMIN_PASSWORD:="changeme123"}
 
+# Application
+: ${UCM_APP_VERSION:="${UCM_VERSION}"}
+
 # =============================================================================
 # VALIDATION
 # =============================================================================
@@ -192,19 +199,9 @@ mkdir -p "$DATA_PATH"/{ca,certs,private,crl,scep,backups,sessions,logs,temp} 2>/
 chmod 755 "$DATA_PATH" 2>/dev/null || true
 chmod 700 "$DATA_PATH"/{ca,certs,private,backups} 2>/dev/null || true
 
-# Fix permissions to ensure UCM user can write
-echo -e "${BLUE}🔧 Checking file permissions...${NC}"
-# Only try chown if running as root (UID 0)
-if [ "$(id -u)" = "0" ] && [ -d "$DATA_PATH" ]; then
-    chown -R 1000:1000 "$DATA_PATH" 2>/dev/null || true
-fi
-
-# Check data directory permissions
-if [ ! -w "$DATA_PATH" ]; then
-    echo -e "${RED}❌ Data directory is not writable!${NC}"
-    echo "   Please check volume permissions"
-    exit 1
-fi
+# Fix permissions to ensure UCM user can write (entrypoint runs as root)
+echo -e "${BLUE}🔧 Fixing file permissions...${NC}"
+chown -R 1000:1000 "$DATA_PATH" 2>/dev/null || true
 
 echo -e "${GREEN}✅ Directories ready${NC}"
 
@@ -269,6 +266,9 @@ ACME_DIRECTORY_URL=${UCM_ACME_DIRECTORY_URL}
 INITIAL_ADMIN_USERNAME=${UCM_INITIAL_ADMIN_USERNAME}
 INITIAL_ADMIN_EMAIL=${UCM_INITIAL_ADMIN_EMAIL}
 INITIAL_ADMIN_PASSWORD=${UCM_INITIAL_ADMIN_PASSWORD}
+
+# Application Version
+APP_VERSION=${UCM_APP_VERSION}
 EOF
 
 chmod 600 /app/.env
@@ -487,5 +487,5 @@ echo ""
 echo -e "${BLUE}📋 Executing command: $*${NC}"
 echo ""
 
-# Execute the main command
-exec "$@"
+# Drop privileges and execute as ucm user
+exec gosu ucm "$@"
