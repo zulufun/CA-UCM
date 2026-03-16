@@ -406,11 +406,9 @@ EOF
         chmod 600 "$TEMP_KEY_PATH"
         chmod 644 "$TEMP_CERT_PATH"
 
-        if [ "$CERT_PATH_WRITABLE" = "true" ]; then
-            cp "$TEMP_CERT_PATH" "$CERT_PATH"
-            cp "$TEMP_KEY_PATH" "$KEY_PATH"
-            chmod 600 "$KEY_PATH"
-            chmod 644 "$CERT_PATH"
+        if [ "$CERT_PATH_WRITABLE" = "true" ] && cp "$TEMP_CERT_PATH" "$CERT_PATH" 2>/dev/null && cp "$TEMP_KEY_PATH" "$KEY_PATH" 2>/dev/null; then
+            chmod 600 "$KEY_PATH" 2>/dev/null || true
+            chmod 644 "$CERT_PATH" 2>/dev/null || true
         else
             export HTTPS_CERT_PATH="$TEMP_CERT_PATH"
             export HTTPS_KEY_PATH="$TEMP_KEY_PATH"
@@ -499,8 +497,10 @@ echo ""
 # HEALTH CHECK
 # =============================================================================
 
-# Create health check endpoint marker
-touch /app/.docker-ready
+# Create health check endpoint marker with writable fallback
+if ! touch /opt/ucm/.docker-ready 2>/dev/null; then
+    touch /tmp/.docker-ready 2>/dev/null || true
+fi
 
 # Export environment variables for Python app (without UCM_ prefix)
 export FQDN="${UCM_FQDN}"
