@@ -14,7 +14,6 @@ NC='\033[0m'
 # Configuration
 IMAGE_NAME="${IMAGE_NAME:-ucm}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
-VERSION="${VERSION:-1.0.0}"
 REGISTRY="${REGISTRY:-}"  # e.g., docker.io/username or ghcr.io/username
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 
@@ -67,7 +66,6 @@ while [[ $# -gt 0 ]]; do
             echo "Environment variables:"
             echo "  IMAGE_NAME     Image name (default: ucm)"
             echo "  REGISTRY       Docker registry (e.g., docker.io/username)"
-            echo "  VERSION        UCM version (default: 1.0.0)"
             echo "  PLATFORMS      Target platforms (default: linux/amd64,linux/arm64)"
             exit 0
             ;;
@@ -89,7 +87,6 @@ fi
 echo ""
 echo -e "${GREEN}📦 Build Configuration:${NC}"
 echo "   • Image: $FULL_IMAGE_NAME:$IMAGE_TAG"
-echo "   • Version: $VERSION"
 echo "   • Multi-arch: $([ "$MULTIARCH" = true ] && echo 'Yes' || echo 'No')"
 echo "   • Push: $([ "$PUSH" = true ] && echo 'Yes' || echo 'No')"
 echo "   • No cache: $([ "$NO_CACHE" = true ] && echo 'Yes' || echo 'No')"
@@ -97,8 +94,6 @@ echo ""
 
 # Build arguments
 BUILD_ARGS=(
-    --build-arg "VERSION=$VERSION"
-    --label "org.opencontainers.image.version=$VERSION"
     --label "org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
     --label "org.opencontainers.image.source=https://github.com/NeySlim/ultimate-ca-manager"
 )
@@ -129,7 +124,6 @@ if [ "$MULTIARCH" = true ]; then
         "${BUILD_ARGS[@]}" \
         --platform "$PLATFORMS" \
         --tag "$FULL_IMAGE_NAME:$IMAGE_TAG" \
-        --tag "$FULL_IMAGE_NAME:$VERSION" \
         "$([ "$PUSH" = true ] && echo "--push" || echo "--load")" \
         .
 else
@@ -137,7 +131,6 @@ else
     docker build \
         "${BUILD_ARGS[@]}" \
         --tag "$FULL_IMAGE_NAME:$IMAGE_TAG" \
-        --tag "$FULL_IMAGE_NAME:$VERSION" \
         .
 fi
 
@@ -157,7 +150,6 @@ if [ $? -eq 0 ]; then
     if [ "$PUSH" = true ] && [ "$MULTIARCH" != true ]; then
         echo -e "${BLUE}📤 Pushing image to registry...${NC}"
         docker push "$FULL_IMAGE_NAME:$IMAGE_TAG"
-        docker push "$FULL_IMAGE_NAME:$VERSION"
         echo -e "${GREEN}✅ Push successful!${NC}"
     fi
     

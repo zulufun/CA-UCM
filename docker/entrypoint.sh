@@ -15,13 +15,9 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# Read version from VERSION file (single source of truth)
-UCM_VERSION=$(cat /app/VERSION 2>/dev/null || echo "unknown")
-
 # Banner
 echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║  Ultimate CA Manager - Docker         ║${NC}"
-echo -e "${GREEN}║  Version ${UCM_VERSION}$(printf '%*s' $((25 - ${#UCM_VERSION})) '')║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -115,9 +111,6 @@ validate_email() {
 : ${UCM_INITIAL_ADMIN_USERNAME:="admin"}
 : ${UCM_INITIAL_ADMIN_EMAIL:="admin@${UCM_FQDN}"}
 : ${UCM_INITIAL_ADMIN_PASSWORD:="changeme123"}
-
-# Application
-: ${UCM_APP_VERSION:="${UCM_VERSION}"}
 
 # =============================================================================
 # VALIDATION
@@ -274,9 +267,8 @@ INITIAL_ADMIN_USERNAME=${UCM_INITIAL_ADMIN_USERNAME}
 INITIAL_ADMIN_EMAIL=${UCM_INITIAL_ADMIN_EMAIL}
 INITIAL_ADMIN_PASSWORD=${UCM_INITIAL_ADMIN_PASSWORD}
 
-# Application Version
-APP_VERSION=${UCM_APP_VERSION}
 EOF
+    then
 
         chmod 600 "$ENV_FILE" 2>/dev/null || true
         ENV_FILE_WRITTEN="$ENV_FILE"
