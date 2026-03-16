@@ -1,9 +1,9 @@
 # Frontend
 frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-frontend/coverage/
-frontend/*.local
+# frontend/dist/
+# frontend/.vite/
+# frontend/coverage/
+# frontend/*.local
 
 # Python
 __pycache__/
@@ -66,8 +66,8 @@ backend/data/*.pem
 *.rpm
 *.tar.gz
 *.zip
-dist/
-build/
+# dist/
+# build/
 *.egg-info/
 
 # Debian packaging build
